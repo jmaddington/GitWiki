@@ -1,0 +1,291 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Edit: {{ file_path }} - GitWiki{% endblock %}
+
+{% block content %}
+<div id="alerts"></div>
+
+<div class="toolbar">
+    <button id="btn-commit" class="btn btn-primary">Commit Draft</button>
+    <button id="btn-publish" class="btn btn-success">Publish to Main</button>
+    <button id="btn-discard" class="btn btn-danger">Discard Draft</button>
+    <button id="btn-cancel" class="btn btn-secondary">Cancel</button>
+    <span id="status" class="status saved">All changes saved</span>
+</div>
+
+<div class="editor-wrapper">
+    <textarea id="markdown-editor"></textarea>
+</div>
+
+<div id="validation-errors"></div>
+
+<!-- Hidden data -->
+<div id="editor-data"
+     data-session-id="{{ session_id }}"
+     data-branch-name="{{ branch_name }}"
+     data-file-path="{{ file_path }}"
+     data-content="{{ content|escapejs }}"
+     style="display: none;">
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// AIDEV-NOTE: editor-init; Initialize SimpleMDE with auto-save and image paste support
+
+// Get editor data
+const editorData = document.getElementById('editor-data');
+const sessionId = parseInt(editorData.dataset.sessionId);
+const branchName = editorData.dataset.branchName;
+const filePath = editorData.dataset.filePath;
+const initialContent = editorData.dataset.content;
+
+// Initialize SimpleMDE
+const simplemde = new SimpleMDE({
+    element: document.getElementById('markdown-editor'),
+    spellChecker: false,
+    autosave: {
+        enabled: true,
+        uniqueId: `gitwiki-${sessionId}`,
+        delay: 30000,  // Auto-save every 30 seconds to localStorage
+    },
+    placeholder: "Start writing in markdown...",
+    toolbar: [
+        "bold", "italic", "heading", "|",
+        "quote", "unordered-list", "ordered-list", "|",
+        "link", "image", "|",
+        "preview", "side-by-side", "fullscreen", "|",
+        "guide"
+    ]
+});
+
+// Set initial content
+simplemde.value(initialContent);
+
+// Track changes
+let hasUnsavedChanges = false;
+let lastSavedContent = initialContent;
+
+simplemde.codemirror.on('change', function() {
+    const currentContent = simplemde.value();
+    hasUnsavedChanges = currentContent !== lastSavedContent;
+    updateStatus(hasUnsavedChanges ? 'unsaved' : 'saved');
+});
+
+// Status management
+function updateStatus(state, message) {
+    const statusEl = document.getElementById('status');
+    statusEl.className = `status ${state}`;
+
+    if (message) {
+        statusEl.textContent = message;
+    } else {
+        if (state === 'saved') {
+            statusEl.textContent = 'All changes saved';
+        } else if (state === 'unsaved') {
+            statusEl.textContent = 'Unsaved changes';
+        } else if (state === 'error') {
+            statusEl.textContent = 'Error occurred';
+        }
+    }
+}
+
+// Alert management
+function showAlert(type, message) {
+    const alertsDiv = document.getElementById('alerts');
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type}`;
+    alert.textContent = message;
+    alertsDiv.appendChild(alert);
+
+    setTimeout(() => {
+        alert.remove();
+    }, 5000);
+}
+
+// AIDEV-NOTE: clipboard-paste; Handle image paste from clipboard
+simplemde.codemirror.on('paste', function(cm, event) {
+    const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+            event.preventDefault();
+            const blob = items[i].getAsFile();
+            uploadImage(blob);
+            break;
+        }
+    }
+});
+
+// Upload image function
+async function uploadImage(file) {
+    const formData = new FormData();
+    formData.append('session_id', sessionId);
+    formData.append('image', file);
+    formData.append('alt_text', '');
+
+    updateStatus('unsaved', 'Uploading image...');
+
+    try {
+        const response = await fetch('/api/editor/upload-image/', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            // Insert markdown at cursor
+            const cm = simplemde.codemirror;
+            const cursor = cm.getCursor();
+            cm.replaceRange(data.markdown + '\n', cursor);
+
+            showAlert('success', `Image uploaded: ${data.filename}`);
+            updateStatus('saved', 'Image uploaded');
+        } else {
+            showAlert('danger', `Upload failed: ${data.error || 'Unknown error'}`);
+            updateStatus('error');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        showAlert('danger', 'Failed to upload image');
+        updateStatus('error');
+    }
+}
+
+// Commit draft
+document.getElementById('btn-commit').addEventListener('click', async function() {
+    const commitMessage = prompt('Enter commit message:', 'Update ' + filePath);
+
+    if (!commitMessage) return;
+
+    const content = simplemde.value();
+    updateStatus('unsaved', 'Committing...');
+
+    try {
+        const response = await fetch('/api/editor/commit/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+                content: content,
+                commit_message: commitMessage
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            lastSavedContent = content;
+            hasUnsavedChanges = false;
+            showAlert('success', `Committed: ${data.commit_hash.substring(0, 8)}`);
+            updateStatus('saved');
+        } else {
+            showAlert('danger', `Commit failed: ${data.error || 'Unknown error'}`);
+            updateStatus('error');
+        }
+    } catch (error) {
+        console.error('Commit error:', error);
+        showAlert('danger', 'Failed to commit changes');
+        updateStatus('error');
+    }
+});
+
+// Publish draft
+document.getElementById('btn-publish').addEventListener('click', async function() {
+    if (!confirm('Publish this draft to main branch? This will make your changes live.')) {
+        return;
+    }
+
+    updateStatus('unsaved', 'Publishing...');
+
+    try {
+        const response = await fetch('/api/editor/publish/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+                auto_push: true
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success && data.published) {
+            showAlert('success', 'Successfully published to main branch!');
+            setTimeout(() => {
+                window.location.href = data.url;
+            }, 1500);
+        } else if (response.status === 409 && data.conflict) {
+            showAlert('danger', 'Merge conflict detected! Redirecting to conflict resolution...');
+            setTimeout(() => {
+                window.location.href = data.conflict_details.resolution_url;
+            }, 2000);
+        } else {
+            showAlert('danger', `Publish failed: ${data.error || 'Unknown error'}`);
+            updateStatus('error');
+        }
+    } catch (error) {
+        console.error('Publish error:', error);
+        showAlert('danger', 'Failed to publish changes');
+        updateStatus('error');
+    }
+});
+
+// Discard draft
+document.getElementById('btn-discard').addEventListener('click', async function() {
+    if (!confirm('Discard this draft? All changes will be lost. This cannot be undone.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/editor/discard/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                session_id: sessionId
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showAlert('success', 'Draft discarded');
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1000);
+        } else {
+            showAlert('danger', `Failed to discard: ${data.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Discard error:', error);
+        showAlert('danger', 'Failed to discard draft');
+    }
+});
+
+// Cancel button
+document.getElementById('btn-cancel').addEventListener('click', function() {
+    if (hasUnsavedChanges) {
+        if (!confirm('You have unsaved changes. Are you sure you want to leave?')) {
+            return;
+        }
+    }
+    window.history.back();
+});
+
+// Warn before leaving with unsaved changes
+window.addEventListener('beforeunload', function(e) {
+    if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Active Edit Sessions - GitWiki{% endblock %}
+
+{% block content %}
+<h2>Active Edit Sessions</h2>
+
+{% if sessions %}
+<table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+    <thead>
+        <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+            <th style="padding: 0.75rem; text-align: left;">File Path</th>
+            <th style="padding: 0.75rem; text-align: left;">Branch</th>
+            <th style="padding: 0.75rem; text-align: left;">Last Modified</th>
+            <th style="padding: 0.75rem; text-align: left;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for session in sessions %}
+        <tr style="border-bottom: 1px solid #dee2e6;">
+            <td style="padding: 0.75rem;">{{ session.file_path }}</td>
+            <td style="padding: 0.75rem;"><code>{{ session.branch_name }}</code></td>
+            <td style="padding: 0.75rem;">{{ session.last_modified|date:"Y-m-d H:i" }}</td>
+            <td style="padding: 0.75rem;">
+                <a href="/editor/{{ session.file_path }}?user_id={{ user.id }}" class="btn btn-primary">Resume</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="alert alert-info">
+    <p>You don't have any active edit sessions.</p>
+</div>
+{% endif %}
+
+<a href="/" class="btn btn-secondary" style="margin-top: 1rem;">Back to Home</a>
+{% endblock %}

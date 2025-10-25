@@ -13,7 +13,16 @@ A distributed, Git-backed markdown wiki system with web-based editing, clipboard
 - ✅ REST API endpoints
 - ✅ Comprehensive test suite (11 tests passing)
 
-**Currently**: Phase 2 - Editor Service (starting next)
+**Phase 2 Complete**: Editor Service with web-based markdown editing
+- ✅ SimpleMDE markdown editor integration
+- ✅ Editor API endpoints (start, commit, publish, validate, upload, discard)
+- ✅ Draft/commit/publish workflow
+- ✅ Image upload with clipboard paste support
+- ✅ Session management (list, resume, discard)
+- ✅ Comprehensive test suite (15 tests passing)
+- ✅ Binary file support for images
+
+**Currently**: Phase 3 - Display Service (starting next)
 
 ## What is GitWiki?
 
@@ -137,7 +146,7 @@ python manage.py test git_service
 python manage.py test --verbosity=2
 ```
 
-## Available API Endpoints (Phase 1)
+## Available API Endpoints (Phases 1 & 2)
 
 The following REST API endpoints are currently available:
 
@@ -174,6 +183,57 @@ The following REST API endpoints are currently available:
 
 - **GET** `/api/git/branches/?pattern=draft-*` - List branches
 
+### Editor Service API (`/api/editor/`)
+
+- **POST** `/api/editor/start/` - Start editing a file
+  ```json
+  {
+    "user_id": 123,
+    "file_path": "docs/page.md"
+  }
+  ```
+
+- **POST** `/api/editor/validate/` - Validate markdown syntax
+  ```json
+  {
+    "content": "# Markdown content..."
+  }
+  ```
+
+- **POST** `/api/editor/commit/` - Commit draft changes
+  ```json
+  {
+    "session_id": 456,
+    "content": "# Updated content",
+    "commit_message": "Update page"
+  }
+  ```
+
+- **POST** `/api/editor/publish/` - Publish draft to main
+  ```json
+  {
+    "session_id": 456,
+    "auto_push": true
+  }
+  ```
+
+- **POST** `/api/editor/upload-image/` - Upload image (multipart/form-data)
+  - `session_id`: Session ID
+  - `image`: Image file
+  - `alt_text`: Alt text for image
+
+- **POST** `/api/editor/discard/` - Discard draft
+  ```json
+  {
+    "session_id": 456
+  }
+  ```
+
+### Editor Web Views
+
+- **GET** `/editor/{file_path}?user_id={id}` - Edit a markdown file
+- **GET** `/editor/sessions/?user_id={id}` - List active edit sessions
+
 ## Admin Interface
 
 Access the Django admin at `http://localhost:8000/admin/` to:
@@ -206,6 +266,10 @@ For questions or support, please refer to the project documentation or create an
 
 ---
 
-**Current Progress**: ✅ Phase 1 Complete - Git Service implemented with full API and test coverage
+**Current Progress**:
+- ✅ Phase 1 Complete - Git Service implemented with full API and test coverage
+- ✅ Phase 2 Complete - Editor Service with SimpleMDE, image upload, and full workflow
+
+**Test Coverage**: 26 tests passing (11 git_service + 15 editor)
 
 *Last Updated: October 25, 2025*

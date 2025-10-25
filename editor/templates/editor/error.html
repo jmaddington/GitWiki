@@ -1,0 +1,12 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Error - GitWiki{% endblock %}
+
+{% block content %}
+<div class="alert alert-danger">
+    <h2>Error</h2>
+    <p>{{ error }}</p>
+</div>
+
+<a href="javascript:history.back()" class="btn btn-secondary">Go Back</a>
+{% endblock %}

@@ -21,4 +21,6 @@ from django.urls import path, include
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/git/", include('git_service.urls')),
+    path("api/editor/", include('editor.urls')),  # API endpoints
+    path("editor/", include('editor.urls')),  # HTML views
 ]

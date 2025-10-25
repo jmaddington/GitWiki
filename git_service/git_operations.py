@@ -178,10 +178,11 @@ class GitRepository:
         self,
         branch_name: str,
         file_path: str,
-        content: str,
+        content: Optional[str],
         commit_message: str,
         user_info: Dict[str, str],
-        user: Optional[User] = None
+        user: Optional[User] = None,
+        is_binary: bool = False
     ) -> Dict:
         """
         Commit changes to a draft branch.
@@ -189,10 +190,11 @@ class GitRepository:
         Args:
             branch_name: Name of the draft branch
             file_path: Relative path to file in repository
-            content: File content
+            content: File content (None if is_binary=True and file already saved)
             commit_message: Commit message
             user_info: Dict with 'name' and 'email' keys
             user: Optional User instance for logging
+            is_binary: If True, file is already saved and should be added as-is
 
         Returns:
             Dict with commit_hash and success status
@@ -210,10 +212,11 @@ class GitRepository:
             # Checkout branch
             self.repo.heads[branch_name].checkout()
 
-            # Write file content
-            full_path = self.repo_path / file_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content, encoding='utf-8')
+            # Write file content if not binary (binary files are already saved)
+            if not is_binary and content is not None:
+                full_path = self.repo_path / file_path
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                full_path.write_text(content, encoding='utf-8')
 
             # Stage file
             self.repo.index.add([file_path])
@@ -236,7 +239,8 @@ class GitRepository:
                 request_params={
                     'commit_message': commit_message,
                     'user_info': user_info,
-                    'content_length': len(content)
+                    'content_length': len(content) if content else 0,
+                    'is_binary': is_binary
                 },
                 response_code=200,
                 success=True,
