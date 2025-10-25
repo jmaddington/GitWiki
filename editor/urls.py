@@ -9,7 +9,10 @@ from .api import (
     CommitDraftAPIView,
     PublishEditAPIView,
     ValidateMarkdownAPIView,
-    UploadImageAPIView
+    UploadImageAPIView,
+    ConflictsListAPIView,
+    ConflictVersionsAPIView,
+    ResolveConflictAPIView
 )
 from . import views
 
@@ -24,8 +27,17 @@ urlpatterns = [
     path('api/validate/', ValidateMarkdownAPIView.as_view(), name='api-validate-markdown'),
     path('api/upload-image/', UploadImageAPIView.as_view(), name='api-upload-image'),
 
-    # UI views (to be implemented)
+    # Conflict resolution API endpoints
+    path('api/conflicts/', ConflictsListAPIView.as_view(), name='api-conflicts-list'),
+    path('api/conflicts/versions/<int:session_id>/<path:file_path>/', ConflictVersionsAPIView.as_view(), name='api-conflict-versions'),
+    path('api/conflicts/resolve/', ResolveConflictAPIView.as_view(), name='api-resolve-conflict'),
+
+    # UI views
     path('edit/<path:file_path>/', views.edit_page, name='edit-page'),
     path('sessions/', views.list_sessions, name='list-sessions'),
     path('sessions/<int:session_id>/discard/', views.discard_session, name='discard-session'),
+
+    # Conflict resolution UI views
+    path('conflicts/', views.conflicts_list, name='conflicts-list'),
+    path('conflicts/resolve/<int:session_id>/<path:file_path>/', views.resolve_conflict_view, name='resolve-conflict'),
 ]

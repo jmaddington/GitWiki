@@ -833,6 +833,303 @@ class GitRepository:
             logger.error(f'{error_msg} [GITOPS-STATIC03]')
             raise GitRepositoryError(error_msg)
 
+    def get_conflicts(self, cache_timeout: int = 120) -> Dict:
+        """
+        Get list of all draft branches with merge conflicts.
+
+        AIDEV-NOTE: conflict-detection; Caches results for 2min to avoid expensive operations
+
+        Args:
+            cache_timeout: Cache timeout in seconds (default: 120 = 2 minutes)
+
+        Returns:
+            Dict with conflicts list, cache status, and timestamp:
+            {
+                "conflicts": [
+                    {
+                        "branch_name": "draft-123-abc456",
+                        "file_paths": ["docs/page.md"],
+                        "user_id": 123,
+                        "created_at": "2025-10-25T10:00:00Z"
+                    }
+                ],
+                "cached": false,
+                "timestamp": "2025-10-25T10:00:00Z"
+            }
+        """
+        from django.core.cache import cache
+
+        start_time = time.time()
+        cache_key = 'git_conflicts_list'
+
+        try:
+            # Check cache first
+            cached = cache.get(cache_key)
+            if cached:
+                logger.info('Returning cached conflicts list [GITOPS-CONFLICT03]')
+                cached['cached'] = True
+                return cached
+
+            logger.info('Detecting conflicts (cache miss) [GITOPS-CONFLICT04]')
+
+            # Get all draft branches
+            draft_branches = self.list_branches(pattern='draft-*')
+
+            conflicts = []
+
+            # Check each draft branch for conflicts
+            for branch_name in draft_branches:
+                try:
+                    has_conflict, conflicted_files = self._check_merge_conflicts(branch_name)
+
+                    if has_conflict and conflicted_files:
+                        # Extract user_id from branch name (draft-{user_id}-{uuid})
+                        parts = branch_name.split('-')
+                        user_id = int(parts[1]) if len(parts) >= 2 else None
+
+                        # Get branch creation time
+                        try:
+                            branch = self.repo.heads[branch_name]
+                            created_at = datetime.fromtimestamp(branch.commit.committed_date).isoformat()
+                        except Exception:
+                            created_at = datetime.now().isoformat()
+
+                        conflicts.append({
+                            'branch_name': branch_name,
+                            'file_paths': conflicted_files,
+                            'user_id': user_id,
+                            'created_at': created_at
+                        })
+
+                except Exception as e:
+                    logger.warning(f'Failed to check conflicts for {branch_name}: {str(e)} [GITOPS-CONFLICT05]')
+                    continue
+
+            result = {
+                'conflicts': conflicts,
+                'cached': False,
+                'timestamp': datetime.now().isoformat()
+            }
+
+            # Cache the result
+            cache.set(cache_key, result, cache_timeout)
+
+            execution_time = int((time.time() - start_time) * 1000)
+            logger.info(f'Found {len(conflicts)} conflicts in {execution_time}ms [GITOPS-CONFLICT02]')
+
+            return result
+
+        except Exception as e:
+            error_msg = f'Failed to get conflicts: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-CONFLICT06]')
+            raise GitRepositoryError(error_msg)
+
+    def get_conflict_versions(self, branch_name: str, file_path: str) -> Dict[str, str]:
+        """
+        Extract three versions for conflict resolution (base, theirs, ours).
+
+        AIDEV-NOTE: three-way-diff; Extracts base, theirs, ours for Monaco Editor
+
+        Args:
+            branch_name: Draft branch name
+            file_path: Path to conflicted file
+
+        Returns:
+            Dict with three versions:
+            {
+                "base": "content from common ancestor",
+                "theirs": "content from main branch",
+                "ours": "content from draft branch"
+            }
+        """
+        try:
+            # Validate branch exists
+            if not self._has_branch(branch_name):
+                raise GitRepositoryError(f"Branch {branch_name} does not exist")
+
+            # Get merge base (common ancestor)
+            main_commit = self.repo.heads.main.commit
+            draft_commit = self.repo.heads[branch_name].commit
+            merge_bases = self.repo.merge_base(main_commit, draft_commit)
+
+            if not merge_bases:
+                logger.warning(f'No merge base found for {branch_name} and main [GITOPS-CONFLICT07]')
+                base_content = ""
+            else:
+                base_commit = merge_bases[0]
+                try:
+                    base_content = base_commit.tree[file_path].data_stream.read().decode('utf-8')
+                except KeyError:
+                    # File didn't exist in base
+                    base_content = ""
+
+            # Get content from main branch (theirs)
+            try:
+                theirs_content = main_commit.tree[file_path].data_stream.read().decode('utf-8')
+            except KeyError:
+                theirs_content = ""
+
+            # Get content from draft branch (ours)
+            try:
+                ours_content = draft_commit.tree[file_path].data_stream.read().decode('utf-8')
+            except KeyError:
+                ours_content = ""
+
+            logger.info(f'Extracted conflict versions for {file_path} in {branch_name} [GITOPS-CONFLICT08]')
+
+            return {
+                'base': base_content,
+                'theirs': theirs_content,
+                'ours': ours_content,
+                'file_path': file_path,
+                'branch_name': branch_name
+            }
+
+        except Exception as e:
+            error_msg = f'Failed to get conflict versions: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-CONFLICT09]')
+            raise GitRepositoryError(error_msg)
+
+    def resolve_conflict(
+        self,
+        branch_name: str,
+        file_path: str,
+        resolution_content: str,
+        user_info: Dict,
+        is_binary: bool = False
+    ) -> Dict:
+        """
+        Apply conflict resolution and retry merge.
+
+        AIDEV-NOTE: conflict-resolution; Retries merge after applying resolution
+
+        Args:
+            branch_name: Draft branch name
+            file_path: Path to conflicted file
+            resolution_content: Resolved content (or file path for binary)
+            user_info: User information dict with 'name' and 'email'
+            is_binary: Whether this is a binary file
+
+        Returns:
+            Dict with resolution status:
+            {
+                "success": true,
+                "merged": true,
+                "commit_hash": "abc123...",
+                "still_conflicts": []  # if merge still failed
+            }
+        """
+        start_time = time.time()
+
+        try:
+            # Validate branch exists
+            if not self._has_branch(branch_name):
+                raise GitRepositoryError(f"Branch {branch_name} does not exist")
+
+            # Save current branch
+            current_branch = self.repo.active_branch.name
+
+            # Checkout draft branch
+            self.repo.heads[branch_name].checkout()
+
+            # Write resolved content
+            file_full_path = self.repo_path / file_path
+
+            if not is_binary:
+                # Text file - write content
+                file_full_path.parent.mkdir(parents=True, exist_ok=True)
+                file_full_path.write_text(resolution_content, encoding='utf-8')
+            else:
+                # Binary file - resolution_content is the source path
+                if not Path(resolution_content).exists():
+                    raise GitRepositoryError(f"Binary file not found: {resolution_content}")
+                shutil.copy2(resolution_content, file_full_path)
+
+            # Stage the resolved file
+            self.repo.index.add([file_path])
+
+            # Commit the resolution
+            commit_message = f"Resolve conflict in {file_path}"
+            self.repo.index.commit(
+                commit_message,
+                author=git.Actor(user_info.get('name', 'Unknown'), user_info.get('email', 'unknown@example.com'))
+            )
+
+            resolution_commit = self.repo.head.commit.hexsha
+
+            logger.info(f'Applied conflict resolution for {file_path} in {branch_name} [GITOPS-RESOLVE01]')
+
+            # Now try to publish again
+            try:
+                result = self.publish_draft(branch_name, user=None, auto_push=True)
+
+                if result['success']:
+                    execution_time = int((time.time() - start_time) * 1000)
+
+                    GitOperation.log_operation(
+                        operation_type='conflict_resolution',
+                        branch_name=branch_name,
+                        file_path=file_path,
+                        request_params={
+                            'file_path': file_path,
+                            'is_binary': is_binary
+                        },
+                        response_code=200,
+                        success=True,
+                        git_output=f'Resolved and merged {file_path}',
+                        execution_time_ms=execution_time
+                    )
+
+                    logger.info(f'Conflict resolved and merged successfully [GITOPS-RESOLVE02]')
+
+                    return {
+                        'success': True,
+                        'merged': True,
+                        'commit_hash': result.get('commit_hash', resolution_commit),
+                        'still_conflicts': []
+                    }
+                else:
+                    # Still has conflicts
+                    logger.warning(f'Conflict resolution incomplete, still has conflicts [GITOPS-RESOLVE03]')
+
+                    return {
+                        'success': True,
+                        'merged': False,
+                        'commit_hash': resolution_commit,
+                        'still_conflicts': result.get('conflicts', [])
+                    }
+
+            except Exception as e:
+                logger.error(f'Failed to merge after resolution: {str(e)} [GITOPS-RESOLVE04]')
+
+                return {
+                    'success': True,
+                    'merged': False,
+                    'commit_hash': resolution_commit,
+                    'still_conflicts': [{'file_path': file_path, 'error': str(e)}]
+                }
+
+        except Exception as e:
+            execution_time = int((time.time() - start_time) * 1000)
+            error_msg = f'Failed to resolve conflict: {str(e)}'
+
+            GitOperation.log_operation(
+                operation_type='conflict_resolution',
+                branch_name=branch_name,
+                file_path=file_path,
+                request_params={
+                    'file_path': file_path,
+                    'is_binary': is_binary
+                },
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=execution_time
+            )
+
+            logger.error(f'{error_msg} [GITOPS-RESOLVE05]')
+            raise GitRepositoryError(error_msg)
+
 
 # Global repository instance
 _repo_instance = None

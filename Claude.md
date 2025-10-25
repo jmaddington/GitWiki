@@ -47,6 +47,9 @@ Git Service:
 - `file-history` (git_operations.py:543) - Used for page history display
 - `markdown-conversion` (git_operations.py:674) - Uses markdown library with extensions for tables, code, TOC
 - `static-generation` (git_operations.py:709) - Atomic operation using temp directory
+- `conflict-detection` (git_operations.py:840) - Caches results for 2min to avoid expensive operations
+- `three-way-diff` (git_operations.py:931) - Extracts base, theirs, ours for Monaco Editor
+- `conflict-resolution` (git_operations.py:1004) - Retries merge after applying resolution
 - `audit-trail` (git_service/models.py:80) - Complete history of all git operations for debugging
 - `config-model` (git_service/models.py:14) - Provides get/set helpers for type-safe config access
 
@@ -83,7 +86,8 @@ Git Service:
 - GITREPO-INIT01, GITREPO-INIT02, GITREPO-INIT03, GITREPO-LOAD01, GITREPO-MAIN01
 - GITOPS-BRANCH01, GITOPS-BRANCH02
 - GITOPS-COMMIT01, GITOPS-COMMIT02
-- GITOPS-CONFLICT01
+- GITOPS-CONFLICT01, GITOPS-CONFLICT02, GITOPS-CONFLICT03, GITOPS-CONFLICT04, GITOPS-CONFLICT05, GITOPS-CONFLICT06, GITOPS-CONFLICT07, GITOPS-CONFLICT08, GITOPS-CONFLICT09
+- GITOPS-RESOLVE01, GITOPS-RESOLVE02, GITOPS-RESOLVE03, GITOPS-RESOLVE04, GITOPS-RESOLVE05
 - GITOPS-PUBLISH01, GITOPS-PUBLISH02, GITOPS-PUBLISH03, GITOPS-PUBLISH04, GITOPS-PUBLISH05
 - GITOPS-READ01, GITOPS-LIST01
 - GITOPS-HISTORY01, GITOPS-HISTORY02
@@ -102,7 +106,8 @@ Editor Service:
 - EDITOR-COMMIT01, EDITOR-COMMIT02, EDITOR-COMMIT03, EDITOR-COMMIT04
 - EDITOR-PUBLISH01, EDITOR-PUBLISH02, EDITOR-PUBLISH03, EDITOR-PUBLISH04, EDITOR-PUBLISH05
 - EDITOR-UPLOAD01, EDITOR-UPLOAD02, EDITOR-UPLOAD03
-- EDITOR-VIEW01, EDITOR-VIEW02, EDITOR-VIEW03, EDITOR-VIEW04
+- EDITOR-VIEW01, EDITOR-VIEW02, EDITOR-VIEW03, EDITOR-VIEW04, EDITOR-VIEW05, EDITOR-VIEW06, EDITOR-VIEW07, EDITOR-VIEW08, EDITOR-VIEW09
+- EDITOR-CONFLICT01, EDITOR-CONFLICT02, EDITOR-CONFLICT03, EDITOR-CONFLICT04, EDITOR-CONFLICT05, EDITOR-CONFLICT06, EDITOR-CONFLICT07, EDITOR-CONFLICT08, EDITOR-CONFLICT09
 
 Display Service:
 - DISPLAY-META01
