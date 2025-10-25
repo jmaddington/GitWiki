@@ -39,9 +39,18 @@ The git_service/git_operations.py module uses a singleton pattern via get_reposi
 Key AIDEV-NOTEs in codebase:
 - `repo-path-config` (settings.py:20) - Git repository location configuration
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
-- `repo-singleton` (git_operations.py:35) - Single instance manages all git operations
+- `repo-singleton` (git_operations.py:43) - Single instance manages all git operations
 - `dry-run-merge` (git_operations.py:271) - Uses --no-commit to test merge without modifying repo
-- `audit-trail` (models.py:80) - Complete history of all git operations for debugging
+- `binary-files` (git_operations.py:205) - is_binary flag for images/binary files already on disk
+- `audit-trail` (git_service/models.py:80) - Complete history of all git operations for debugging
+- `config-model` (git_service/models.py:14) - Provides get/set helpers for type-safe config access
+- `session-tracking` (editor/models.py:13) - Maps users to their draft branches
+- `editor-serializers` (editor/serializers.py:5) - Validation for all editor API endpoints
+- `path-validation` (editor/serializers.py:16) - Prevent directory traversal attacks
+- `editor-api` (editor/api.py:10) - REST API for markdown editing workflow
+- `image-path-structure` (editor/api.py:539) - Images stored in images/{branch_name}/
+- `editor-views` (editor/views.py:4) - UI views for markdown editing
+- `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
 
 ### Testing
 
@@ -73,6 +82,12 @@ Git Service:
 
 Editor Service:
 - EDITSESS-INACTIVE01, EDITSESS-MULTI01
+- EDITOR-START01, EDITOR-START02, EDITOR-START03
+- EDITOR-SAVE01, EDITOR-SAVE02, EDITOR-SAVE03
+- EDITOR-COMMIT01, EDITOR-COMMIT02, EDITOR-COMMIT03, EDITOR-COMMIT04
+- EDITOR-PUBLISH01, EDITOR-PUBLISH02, EDITOR-PUBLISH03, EDITOR-PUBLISH04, EDITOR-PUBLISH05
+- EDITOR-UPLOAD01, EDITOR-UPLOAD02, EDITOR-UPLOAD03
+- EDITOR-VIEW01, EDITOR-VIEW02, EDITOR-VIEW03, EDITOR-VIEW04
 
 Settings:
 - SETTINGS-LOG01

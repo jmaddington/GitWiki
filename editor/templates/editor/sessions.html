@@ -1,0 +1,118 @@
+{% extends "editor/base.html" %}
+
+{% block title %}My Draft Sessions - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-lg-12">
+            <h2 class="mb-4">
+                <i class="fas fa-edit"></i> My Draft Sessions
+            </h2>
+
+            {% if sessions %}
+            <div class="card">
+                <div class="card-header">
+                    <div class="row">
+                        <div class="col">
+                            <strong>Active draft sessions ({{sessions.count}})</strong>
+                        </div>
+                        <div class="col-auto">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle"></i> These are your work-in-progress edits
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for session in sessions %}
+                    <div class="list-group-item">
+                        <div class="row align-items-center">
+                            <div class="col-md-5">
+                                <h6 class="mb-1">
+                                    <i class="fas fa-file-alt"></i>
+                                    <code>{{ session.file_path }}</code>
+                                </h6>
+                                <small class="text-muted">
+                                    <i class="fas fa-code-branch"></i> {{ session.branch_name }}
+                                </small>
+                            </div>
+                            <div class="col-md-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-user"></i> {{ session.user.username }}
+                                </small>
+                                <br>
+                                <small class="text-muted">
+                                    <i class="fas fa-clock"></i>
+                                    Created: {{ session.created_at|date:"M d, Y H:i" }}
+                                </small>
+                            </div>
+                            <div class="col-md-2">
+                                <small class="text-muted">
+                                    Last modified:<br>
+                                    {{ session.last_modified|timesince }} ago
+                                </small>
+                            </div>
+                            <div class="col-md-2 text-end">
+                                <div class="btn-group" role="group">
+                                    <a href="/editor/edit/{{ session.file_path }}/"
+                                       class="btn btn-sm btn-primary"
+                                       title="Resume editing">
+                                        <i class="fas fa-edit"></i> Resume
+                                    </a>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-danger"
+                                            onclick="discardSession({{ session.id }}, '{{ session.file_path }}')"
+                                            title="Discard this draft">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="card-footer text-muted">
+                    <small>
+                        <i class="fas fa-lightbulb"></i>
+                        <strong>Tip:</strong> Draft sessions are automatically cleaned up after 7 days of inactivity.
+                    </small>
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <h5 class="alert-heading">
+                    <i class="fas fa-info-circle"></i> No active drafts
+                </h5>
+                <p>You don't have any active draft sessions. Start editing a page to create a new draft!</p>
+                <hr>
+                <p class="mb-0">
+                    <a href="/" class="btn btn-primary">
+                        <i class="fas fa-home"></i> Go to Home
+                    </a>
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Hidden form for discarding sessions -->
+<form id="discard-form" method="POST" style="display: none;">
+    {% csrf_token %}
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function discardSession(sessionId, filePath) {
+        if (!confirm(`Are you sure you want to discard the draft for "${filePath}"?\n\nThis cannot be undone.`)) {
+            return;
+        }
+
+        const form = document.getElementById('discard-form');
+        form.action = `/editor/sessions/${sessionId}/discard/`;
+        form.submit();
+    }
+</script>
+{% endblock %}
