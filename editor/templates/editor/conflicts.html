@@ -1,0 +1,159 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Conflicts - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-3">
+                <i class="fas fa-exclamation-triangle text-warning"></i> Merge Conflicts
+            </h1>
+
+            {% if cached %}
+            <div class="alert alert-info alert-dismissible fade show" role="alert">
+                <i class="fas fa-info-circle"></i> Results cached (refreshed at {{ timestamp }})
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endif %}
+
+            {% if conflicts %}
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>{{ conflicts|length }} unresolved conflict{{ conflicts|length|pluralize }}</strong>
+                found. These must be resolved before the changes can be published.
+            </div>
+
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list"></i> Unresolved Conflicts
+                        <span class="badge bg-dark float-end">{{ conflicts|length }}</span>
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>File Path</th>
+                                    <th>Branch</th>
+                                    <th>User</th>
+                                    <th>Created</th>
+                                    <th>Files</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for conflict in conflicts %}
+                                <tr>
+                                    <td>
+                                        <i class="fas fa-file-alt text-muted"></i>
+                                        <code>{{ conflict.file_path }}</code>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary">{{ conflict.branch_name }}</span>
+                                    </td>
+                                    <td>
+                                        <i class="fas fa-user text-muted"></i>
+                                        {{ conflict.user_name }}
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ conflict.created_at|date:"M d, Y H:i" }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-danger">{{ conflict.file_paths|length }} file{{ conflict.file_paths|length|pluralize }}</span>
+                                    </td>
+                                    <td>
+                                        {% if conflict.session %}
+                                        <a href="{% url 'editor:resolve-conflict' conflict.session.id conflict.file_path %}"
+                                           class="btn btn-sm btn-primary">
+                                            <i class="fas fa-tools"></i> Resolve
+                                        </a>
+                                        {% else %}
+                                        <button class="btn btn-sm btn-secondary" disabled>
+                                            <i class="fas fa-exclamation-circle"></i> No Session
+                                        </button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button onclick="location.reload()" class="btn btn-outline-primary">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <a href="{% url 'editor:list-sessions' %}" class="btn btn-outline-secondary">
+                    <i class="fas fa-list"></i> View All Drafts
+                </a>
+            </div>
+
+            {% else %}
+            <div class="alert alert-success">
+                <i class="fas fa-check-circle"></i>
+                <strong>No conflicts!</strong> All draft branches can be published without issues.
+            </div>
+
+            <div class="text-center py-5">
+                <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
+                <h3 class="mt-3">Everything is in sync</h3>
+                <p class="text-muted">There are no merge conflicts at this time.</p>
+                <a href="{% url 'editor:list-sessions' %}" class="btn btn-primary mt-3">
+                    <i class="fas fa-list"></i> View Draft Sessions
+                </a>
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+
+<script>
+// Auto-refresh every 30 seconds
+let autoRefreshEnabled = true;
+let refreshInterval;
+
+function startAutoRefresh() {
+    if (autoRefreshEnabled) {
+        refreshInterval = setInterval(function() {
+            console.log('Auto-refreshing conflicts list...');
+            location.reload();
+        }, 30000); // 30 seconds
+    }
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+}
+
+// Start auto-refresh when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    startAutoRefresh();
+
+    // Stop auto-refresh when user is about to navigate away
+    window.addEventListener('beforeunload', function() {
+        stopAutoRefresh();
+    });
+});
+</script>
+
+<style>
+.table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+code {
+    background-color: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,257 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Resolve Binary File Conflict - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'editor:conflicts-list' %}">Conflicts</a></li>
+            <li class="breadcrumb-item active">Resolve Binary Conflict</li>
+        </ol>
+    </nav>
+
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-3">
+                <i class="fas fa-file text-primary"></i> Resolve Binary File Conflict
+            </h1>
+
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>Binary File Conflict:</strong> Binary files cannot be automatically merged.
+                You must choose which version to keep.
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-file-alt"></i> {{ file_path }}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">
+                        <strong>Branch:</strong> <code>{{ session.branch_name }}</code>
+                        <br>
+                        <strong>Session ID:</strong> {{ session.id }}
+                        <br>
+                        <strong>Conflict Type:</strong> Binary file
+                    </p>
+                </div>
+            </div>
+
+            <form id="resolveForm" method="post">
+                <div class="row">
+                    <!-- Your Version (Ours) -->
+                    <div class="col-md-6">
+                        <div class="card h-100 conflict-option" id="option-ours">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-user"></i> Your Version
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-file-code" style="font-size: 4rem; color: #28a745;"></i>
+                                </div>
+
+                                <h6>File Information:</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Source:</strong> Your draft branch</li>
+                                    <li><strong>Size:</strong> <span id="size-ours">{{ versions.ours|length }} bytes</span></li>
+                                    <li><strong>Path:</strong> <code>{{ file_path }}</code></li>
+                                </ul>
+
+                                <div class="mt-3">
+                                    <p class="text-muted small">
+                                        <i class="fas fa-info-circle"></i>
+                                        This is the version from your current draft.
+                                    </p>
+                                </div>
+
+                                <div class="form-check mt-3">
+                                    <input class="form-check-input"
+                                           type="radio"
+                                           name="resolution"
+                                           id="choose-ours"
+                                           value="binary_mine"
+                                           required>
+                                    <label class="form-check-label" for="choose-ours">
+                                        <strong>Keep my version</strong>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Branch Version (Theirs) -->
+                    <div class="col-md-6">
+                        <div class="card h-100 conflict-option" id="option-theirs">
+                            <div class="card-header bg-warning text-dark">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-code-branch"></i> Main Branch Version
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-file-code" style="font-size: 4rem; color: #ffc107;"></i>
+                                </div>
+
+                                <h6>File Information:</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>Source:</strong> Main branch</li>
+                                    <li><strong>Size:</strong> <span id="size-theirs">{{ versions.theirs|length }} bytes</span></li>
+                                    <li><strong>Path:</strong> <code>{{ file_path }}</code></li>
+                                </ul>
+
+                                <div class="mt-3">
+                                    <p class="text-muted small">
+                                        <i class="fas fa-info-circle"></i>
+                                        This is the published version currently on main.
+                                    </p>
+                                </div>
+
+                                <div class="form-check mt-3">
+                                    <input class="form-check-input"
+                                           type="radio"
+                                           name="resolution"
+                                           id="choose-theirs"
+                                           value="binary_theirs"
+                                           required>
+                                    <label class="form-check-label" for="choose-theirs">
+                                        <strong>Keep main branch version</strong>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <div class="alert alert-info">
+                        <i class="fas fa-lightbulb"></i>
+                        <strong>Tip:</strong> If you're unsure which version to keep, consider:
+                        <ul class="mb-0 mt-2">
+                            <li>Which version contains the most recent changes you want to keep?</li>
+                            <li>Can you recreate the changes from the other version?</li>
+                            <li>You can always make a new edit after resolving this conflict.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="mt-4 d-flex justify-content-between">
+                    <a href="{% url 'editor:conflicts-list' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Conflicts
+                    </a>
+                    <button type="submit" class="btn btn-primary btn-lg" id="resolveBtn" disabled>
+                        <i class="fas fa-check"></i> Apply Resolution
+                    </button>
+                </div>
+            </form>
+
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('resolveForm');
+    const resolveBtn = document.getElementById('resolveBtn');
+    const radioButtons = document.querySelectorAll('input[name="resolution"]');
+
+    // Enable resolve button when a choice is made
+    radioButtons.forEach(radio => {
+        radio.addEventListener('change', function() {
+            resolveBtn.disabled = false;
+
+            // Highlight selected option
+            document.querySelectorAll('.conflict-option').forEach(opt => {
+                opt.classList.remove('border-primary');
+                opt.style.borderWidth = '1px';
+            });
+
+            const selectedOption = this.value === 'binary_mine' ? 'option-ours' : 'option-theirs';
+            document.getElementById(selectedOption).classList.add('border-primary');
+            document.getElementById(selectedOption).style.borderWidth = '3px';
+        });
+    });
+
+    // Handle form submission
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const selectedResolution = document.querySelector('input[name="resolution"]:checked').value;
+
+        // Confirm action
+        const confirmMsg = selectedResolution === 'binary_mine'
+            ? 'Keep your version and discard main branch version?'
+            : 'Keep main branch version and discard your version?';
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        resolveBtn.disabled = true;
+        resolveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Resolving...';
+
+        try {
+            const response = await axios.post('{% url "editor:api-resolve-conflict" %}', {
+                session_id: {{ session.id }},
+                file_path: '{{ file_path }}',
+                resolution_content: '{{ file_path }}',  // For binary, we just pass the path
+                conflict_type: selectedResolution
+            });
+
+            if (response.data.merged) {
+                // Show success message
+                const successAlert = document.createElement('div');
+                successAlert.className = 'alert alert-success alert-dismissible fade show';
+                successAlert.innerHTML = `
+                    <i class="fas fa-check-circle"></i>
+                    <strong>Success!</strong> Conflict resolved and changes published.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                document.querySelector('.container').insertBefore(successAlert, document.querySelector('nav'));
+
+                // Redirect after 2 seconds
+                setTimeout(() => {
+                    window.location.href = '{% url "editor:conflicts-list" %}';
+                }, 2000);
+            } else {
+                // Still has conflicts
+                alert('Conflict resolution applied, but there are still other conflicts to resolve.');
+                window.location.reload();
+            }
+        } catch (error) {
+            console.error('Resolution error:', error);
+            alert('Error resolving conflict: ' + (error.response?.data?.error || error.message));
+            resolveBtn.disabled = false;
+            resolveBtn.innerHTML = '<i class="fas fa-check"></i> Apply Resolution';
+        }
+    });
+});
+</script>
+
+<style>
+.conflict-option {
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.conflict-option:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.form-check-input:checked {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+code {
+    background-color: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+</style>
+{% endblock %}

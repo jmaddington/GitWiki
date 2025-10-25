@@ -1,0 +1,336 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Resolve Text Conflict - GitWiki{% endblock %}
+
+{% block extra_head %}
+<style>
+#diff-container {
+    height: 600px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.version-label {
+    padding: 8px 12px;
+    font-weight: bold;
+    border-bottom: 2px solid;
+}
+
+.version-base { border-color: #6c757d; background-color: #f8f9fa; }
+.version-theirs { border-color: #ffc107; background-color: #fff3cd; }
+.version-ours { border-color: #28a745; background-color: #d4edda; }
+
+.quick-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.conflict-info {
+    background-color: #f8f9fa;
+    border-left: 4px solid #0d6efd;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'editor:conflicts-list' %}">Conflicts</a></li>
+            <li class="breadcrumb-item active">Resolve Text Conflict</li>
+        </ol>
+    </nav>
+
+    <div class="row">
+        <div class="col-12">
+            <h1 class="mb-3">
+                <i class="fas fa-code-branch text-primary"></i> Resolve Text Conflict
+            </h1>
+
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                <strong>Three-Way Merge:</strong> Compare your changes with the main branch and choose how to resolve the conflict.
+            </div>
+
+            <div class="conflict-info">
+                <h5><i class="fas fa-file-alt"></i> {{ file_path }}</h5>
+                <p class="mb-1"><strong>Branch:</strong> <code>{{ session.branch_name }}</code></p>
+                <p class="mb-0"><strong>Session ID:</strong> {{ session.id }}</p>
+            </div>
+
+            <div class="quick-actions">
+                <button onclick="acceptOurs()" class="btn btn-success">
+                    <i class="fas fa-check"></i> Accept My Version
+                </button>
+                <button onclick="acceptTheirs()" class="btn btn-warning">
+                    <i class="fas fa-check"></i> Accept Main Branch
+                </button>
+                <button onclick="showManualEdit()" class="btn btn-info">
+                    <i class="fas fa-edit"></i> Manual Edit
+                </button>
+            </div>
+
+            <!-- Monaco Diff Editor Container -->
+            <div class="card mb-3">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-columns"></i> Three-Way Diff View
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div id="diff-container"></div>
+                </div>
+            </div>
+
+            <!-- Manual Edit Modal -->
+            <div class="modal fade" id="manualEditModal" tabindex="-1">
+                <div class="modal-dialog modal-xl">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i class="fas fa-edit"></i> Manual Edit
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="editor-container" style="height: 500px; border: 1px solid #ddd;"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" onclick="saveManualEdit()">
+                                <i class="fas fa-save"></i> Use This Version
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <form id="resolveForm">
+                <input type="hidden" id="resolvedContent" name="resolved_content">
+
+                <div class="mt-4 d-flex justify-content-between align-items-center">
+                    <a href="{% url 'editor:conflicts-list' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Conflicts
+                    </a>
+                    <div>
+                        <span id="statusText" class="me-3 text-muted"></span>
+                        <button type="submit" class="btn btn-primary btn-lg" id="resolveBtn" disabled>
+                            <i class="fas fa-check"></i> Apply Resolution & Publish
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Legend -->
+            <div class="mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-info-circle"></i> Legend</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <span class="badge bg-secondary">Base</span>
+                                <span class="text-muted">Common ancestor</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="badge bg-warning text-dark">Main Branch</span>
+                                <span class="text-muted">Published version</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="badge bg-success">Your Version</span>
+                                <span class="text-muted">Your draft</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- Monaco Editor -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+<script>
+// Store versions
+const versions = {
+    base: {{ versions.base|safe|escapejs }},
+    theirs: {{ versions.theirs|safe|escapejs }},
+    ours: {{ versions.ours|safe|escapejs }}
+};
+
+let diffEditor = null;
+let manualEditor = null;
+let resolvedContent = null;
+
+// Initialize Monaco Editor
+require.config({
+    paths: {
+        'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs'
+    }
+});
+
+require(['vs/editor/editor.main'], function() {
+    // Create diff editor showing theirs vs ours
+    diffEditor = monaco.editor.createDiffEditor(document.getElementById('diff-container'), {
+        enableSplitViewResizing: true,
+        renderSideBySide: true,
+        readOnly: false,
+        automaticLayout: true,
+        originalEditable: false,
+        theme: 'vs',
+        fontSize: 13,
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false
+    });
+
+    // Set original (theirs) and modified (ours)
+    const originalModel = monaco.editor.createModel(versions.theirs, 'markdown');
+    const modifiedModel = monaco.editor.createModel(versions.ours, 'markdown');
+
+    diffEditor.setModel({
+        original: originalModel,
+        modified: modifiedModel
+    });
+
+    // Listen for changes
+    modifiedModel.onDidChangeContent(() => {
+        resolvedContent = modifiedModel.getValue();
+        updateResolveButton();
+    });
+
+    updateStatus();
+});
+
+function acceptOurs() {
+    if (confirm('Accept your version and discard main branch changes?')) {
+        resolvedContent = versions.ours;
+        document.getElementById('statusText').innerHTML =
+            '<span class="badge bg-success">Your version selected</span>';
+        updateResolveButton();
+    }
+}
+
+function acceptTheirs() {
+    if (confirm('Accept main branch version and discard your changes?')) {
+        resolvedContent = versions.theirs;
+        document.getElementById('statusText').innerHTML =
+            '<span class="badge bg-warning text-dark">Main branch selected</span>';
+        updateResolveButton();
+    }
+}
+
+function showManualEdit() {
+    const modal = new bootstrap.Modal(document.getElementById('manualEditModal'));
+    modal.show();
+
+    // Initialize manual editor if not already done
+    if (!manualEditor) {
+        require(['vs/editor/editor.main'], function() {
+            manualEditor = monaco.editor.create(document.getElementById('editor-container'), {
+                value: versions.ours,
+                language: 'markdown',
+                theme: 'vs',
+                fontSize: 13,
+                minimap: { enabled: true },
+                automaticLayout: true,
+                wordWrap: 'on'
+            });
+        });
+    } else {
+        manualEditor.setValue(resolvedContent || versions.ours);
+    }
+}
+
+function saveManualEdit() {
+    if (manualEditor) {
+        resolvedContent = manualEditor.getValue();
+        document.getElementById('statusText').innerHTML =
+            '<span class="badge bg-info">Manual edit ready</span>';
+        updateResolveButton();
+
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('manualEditModal'));
+        modal.hide();
+    }
+}
+
+function updateResolveButton() {
+    const btn = document.getElementById('resolveBtn');
+    if (resolvedContent && resolvedContent.length > 0) {
+        btn.disabled = false;
+    }
+}
+
+function updateStatus() {
+    const statusText = document.getElementById('statusText');
+    statusText.innerHTML = '<span class="badge bg-secondary">Choose a resolution method</span>';
+}
+
+// Handle form submission
+document.getElementById('resolveForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    if (!resolvedContent) {
+        alert('Please select a resolution method first.');
+        return;
+    }
+
+    const resolveBtn = document.getElementById('resolveBtn');
+    resolveBtn.disabled = true;
+    resolveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Resolving...';
+
+    try {
+        const response = await axios.post('{% url "editor:api-resolve-conflict" %}', {
+            session_id: {{ session.id }},
+            file_path: '{{ file_path }}',
+            resolution_content: resolvedContent,
+            conflict_type: 'text'
+        });
+
+        if (response.data.merged) {
+            // Show success message
+            const successAlert = document.createElement('div');
+            successAlert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+            successAlert.style.top = '20px';
+            successAlert.style.right = '20px';
+            successAlert.style.zIndex = '9999';
+            successAlert.innerHTML = `
+                <i class="fas fa-check-circle"></i>
+                <strong>Success!</strong> Conflict resolved and changes published.
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(successAlert);
+
+            // Redirect after 2 seconds
+            setTimeout(() => {
+                window.location.href = '{% url "editor:conflicts-list" %}';
+            }, 2000);
+        } else {
+            // Still has conflicts
+            alert('Conflict resolution applied, but there are still other conflicts to resolve.');
+            window.location.reload();
+        }
+    } catch (error) {
+        console.error('Resolution error:', error);
+        alert('Error resolving conflict: ' + (error.response?.data?.error || error.message));
+        resolveBtn.disabled = false;
+        resolveBtn.innerHTML = '<i class="fas fa-check"></i> Apply Resolution & Publish';
+    }
+});
+
+// Warn before leaving with unsaved changes
+window.addEventListener('beforeunload', function(e) {
+    if (resolvedContent && !document.getElementById('resolveBtn').disabled) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+</script>
+{% endblock %}
