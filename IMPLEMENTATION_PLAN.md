@@ -5,7 +5,7 @@
 ## Overview
 This document provides a detailed, step-by-step implementation plan for the GitWiki project - a distributed, Git-backed markdown wiki system with web-based editing, clipboard image support, and conflict resolution.
 
-**Status:** Phase 1 Complete ✅ | Phase 2 Complete ✅ | Phase 3 Complete ✅ | Phase 4 Starting 🔨
+**Status:** Phase 1 Complete ✅ | Phase 2 Complete ✅ | Phase 3 Complete ✅ | Phase 4 Planning Complete 📋
 
 ## Development Principles
 - Follow Django best practices
@@ -367,7 +367,18 @@ This document provides a detailed, step-by-step implementation plan for the GitW
 
 ---
 
-## Phase 4: Conflict Resolution (Week 6)
+## Phase 4: Conflict Resolution (Week 6) - Planning Complete 📋
+
+**⭐ START HERE: See PHASE_4_PLAN.md for comprehensive 8-10 day implementation roadmap**
+
+PHASE_4_PLAN.md contains:
+- Detailed technical specifications for all methods
+- Day-by-day implementation order
+- Code examples for `get_conflicts()`, `resolve_conflict()`, and `get_conflict_versions()`
+- Testing strategy with unit and integration tests
+- Monaco Editor integration guide
+- Success criteria and self-review checklist
+- Risk analysis with mitigations
 
 ### 4.1 Conflict Detection
 - [ ] **get_conflicts()** (git_service/git_operations.py):
@@ -375,7 +386,7 @@ This document provides a detailed, step-by-step implementation plan for the GitW
   - [ ] For each branch: dry-run merge against main
   - [ ] Detect conflicts without modifying repo
   - [ ] Return structured conflict information
-  - [ ] Implement caching (1-2 min TTL)
+  - [ ] Implement caching (2 min TTL) - see PHASE_4_PLAN.md for implementation
   - [ ] Add unit tests with mock conflicts
   - [ ] Add AIDEV-NOTE for dry-run merge strategy
 
@@ -819,7 +830,8 @@ This document provides a detailed, step-by-step implementation plan for the GitW
   - Total: ~1,200 lines added across 8 files
 
 ### Current Phase
-- **Phase 4: Conflict Resolution** (Starting next)
+- **Phase 4: Conflict Resolution** (Planning complete - ready to implement)
+  - 📋 See PHASE_4_PLAN.md for comprehensive roadmap
 
 ### Blockers
 - None currently
@@ -830,15 +842,19 @@ This document provides a detailed, step-by-step implementation plan for the GitW
 3. ✅ Auto-save interval: 60 seconds (as planned)
 
 ### Next Steps (Phase 4 - Conflict Resolution)
-1. Implement get_conflicts() to list all branches with merge conflicts
-2. Add conflict detection dashboard in editor
-3. Integrate Monaco Editor for three-way diff
-4. Create conflict resolution views (text, image, binary)
-5. Implement resolve_conflict() API
+
+**📋 See PHASE_4_PLAN.md for complete 8-10 day implementation roadmap**
+
+Quick summary of Phase 4 tasks:
+1. Implement get_conflicts() to list all branches with merge conflicts (with caching)
+2. Implement resolve_conflict() API to apply resolutions
+3. Add conflict detection dashboard in editor
+4. Integrate Monaco Editor for three-way diff
+5. Create conflict resolution views (text, image, binary)
 6. Add conflict resolution templates
-7. Test conflict scenarios
-8. Write integration tests
-9. Update documentation
+7. Test conflict scenarios (unit + integration tests)
+8. Write comprehensive test suite
+9. Update all documentation and create PHASE_4_SUMMARY.md
 
 ---
 

@@ -38,8 +38,8 @@ A distributed, Git-backed markdown wiki system with web-based editing, clipboard
 - ✅ 14 new grepable codes (DISPLAY-*)
 - ✅ ~1,200 lines added across 8 files
 
-**Currently**: Phase 4 - Conflict Resolution (next)
-**See**: Current commit for Phase 3 implementation details
+**Currently**: Phase 4 - Conflict Resolution (planning complete)
+**See**: PHASE_4_PLAN.md for comprehensive implementation roadmap
 
 ## What is GitWiki?
 
@@ -92,10 +92,18 @@ Each app maintains 95%+ separation of concerns and could be extracted into separ
 
 ## Documentation
 
-- [Phase 1 Code Review](PHASE_1_REVIEW.md) - ⭐ Comprehensive code review and Phase 2 recommendations
+**Current Phase:**
+- [Phase 4 Implementation Plan](PHASE_4_PLAN.md) - ⭐ START HERE: 8-10 day roadmap for conflict resolution
+
+**Completed Phases:**
+- [Phase 1 Code Review](PHASE_1_REVIEW.md) - Architectural analysis and recommendations
+- [Phase 2 Summary](PHASE_2_SUMMARY.md) - Editor service implementation details
+- [Phase 3 Summary](PHASE_3_SUMMARY.md) - Display service implementation details
+
+**Overall Project:**
 - [Project Plan](distributed-wiki-project-plan.md) - Complete project specification with developer handoff
-- [Implementation Plan](IMPLEMENTATION_PLAN.md) - Detailed step-by-step implementation roadmap (Phase 1 complete)
-- [Development Guidelines](Claude.md) - Commenting and commit guidelines with AIDEV-NOTE index
+- [Implementation Plan](IMPLEMENTATION_PLAN.md) - Detailed step-by-step implementation roadmap
+- [Development Guidelines](Claude.md) - Commenting and commit guidelines with AIDEV-NOTE index (48+ codes)
 
 ## Quick Start
 
@@ -235,6 +243,8 @@ For questions or support, please refer to the project documentation or create an
 
 **Current Progress**: ✅ Phase 3 Complete - Display Service with static generation, search, and navigation
 
-**Code Quality**: ✅ Phases 1, 2, & 3 complete - Excellent architecture, ready for Phase 4 (Conflict Resolution)
+**Next Phase**: 🔨 Phase 4 Planning Complete - See PHASE_4_PLAN.md for implementation roadmap
 
-*Last Updated: October 25, 2025 (Phase 3 Complete)*
+**Code Quality**: ✅ Phases 1, 2, & 3 complete - Excellent architecture (851 lines in git_operations.py, 508 in editor/api.py, 437 in display/views.py)
+
+*Last Updated: October 25, 2025 (Phase 4 Planning Complete)*
