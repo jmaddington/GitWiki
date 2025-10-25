@@ -1,0 +1,242 @@
+{% extends "editor/base.html" %}
+
+{% block title %}GitHub Settings - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1><i class="fab fa-github"></i> GitHub Settings</h1>
+            <p class="text-muted">Configure GitHub integration, SSH authentication, and webhook settings.</p>
+            <hr>
+        </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="row">
+        <div class="col-md-12">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- GitHub Configuration Form -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-cog"></i> GitHub Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="settingsForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="save_settings">
+
+                        <!-- Remote URL -->
+                        <div class="mb-3">
+                            <label for="remote_url" class="form-label">
+                                <i class="fab fa-github"></i> GitHub Remote URL
+                                <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="remote_url" name="remote_url"
+                                   value="{{ remote_url }}"
+                                   placeholder="git@github.com:username/repository.git"
+                                   required>
+                            <div class="form-text">
+                                Format: <code>git@github.com:username/repository.git</code> (SSH)
+                                or <code>https://github.com/username/repository.git</code> (HTTPS)
+                            </div>
+                        </div>
+
+                        <!-- SSH Key Path -->
+                        <div class="mb-3">
+                            <label for="ssh_key_path" class="form-label">
+                                <i class="fas fa-key"></i> SSH Private Key Path (Optional)
+                            </label>
+                            <input type="text" class="form-control" id="ssh_key_path" name="ssh_key_path"
+                                   value="{{ ssh_key_path }}"
+                                   placeholder="/home/user/.ssh/id_ed25519">
+                            <div class="form-text">
+                                Leave empty to use default SSH key. Specify path for custom key.
+                            </div>
+                        </div>
+
+                        <!-- Auto-Push Toggle -->
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="auto_push" name="auto_push"
+                                       {% if auto_push %}checked{% endif %}>
+                                <label class="form-check-label" for="auto_push">
+                                    <i class="fas fa-upload"></i> Enable Auto-Push
+                                </label>
+                            </div>
+                            <div class="form-text">
+                                Automatically push commits to GitHub after publishing drafts.
+                                <strong>Currently not implemented - reserved for future use.</strong>
+                            </div>
+                        </div>
+
+                        <!-- Webhook Secret -->
+                        <div class="mb-3">
+                            <label for="webhook_secret" class="form-label">
+                                <i class="fas fa-lock"></i> Webhook Secret (Optional)
+                            </label>
+                            <input type="password" class="form-control" id="webhook_secret" name="webhook_secret"
+                                   value="{{ webhook_secret }}"
+                                   placeholder="Leave empty to disable signature verification">
+                            <div class="form-text">
+                                GitHub webhook secret for signature verification (HMAC SHA-256).
+                                Recommended for production.
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Save Settings
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="testSSHButton">
+                                <i class="fas fa-network-wired"></i> Test SSH Connection
+                            </button>
+                            <a href="{% url 'git_service:sync-management' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-sync"></i> Back to Sync Management
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SSH Connection Test Form (Hidden) -->
+    <form method="post" id="sshTestForm" style="display: none;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="test_ssh">
+        <input type="hidden" name="remote_url" id="test_remote_url">
+        <input type="hidden" name="ssh_key_path" id="test_ssh_key_path">
+    </form>
+
+    <!-- Setup Instructions -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-book"></i> Setup Instructions</h5>
+                </div>
+                <div class="card-body">
+                    <h6>1. SSH Key Setup</h6>
+                    <p>Generate an SSH key pair if you don't have one:</p>
+                    <pre class="bg-light p-3 rounded"><code>ssh-keygen -t ed25519 -C "gitwiki@example.com"</code></pre>
+                    <p>Add the public key to GitHub:</p>
+                    <ul>
+                        <li>Go to GitHub → Settings → SSH and GPG keys → New SSH key</li>
+                        <li>Copy your public key: <code>cat ~/.ssh/id_ed25519.pub</code></li>
+                        <li>Paste and save</li>
+                    </ul>
+
+                    <h6 class="mt-4">2. GitHub Repository Setup</h6>
+                    <ol>
+                        <li>Create a GitHub repository (or use existing)</li>
+                        <li>Copy the SSH URL: <code>git@github.com:username/repository.git</code></li>
+                        <li>Paste it in the "GitHub Remote URL" field above</li>
+                        <li>Click "Test SSH Connection" to verify</li>
+                        <li>Save settings</li>
+                    </ol>
+
+                    <h6 class="mt-4">3. Webhook Setup (Optional)</h6>
+                    <p>Configure GitHub to notify GitWiki when changes are pushed:</p>
+                    <ol>
+                        <li>Go to your GitHub repository → Settings → Webhooks → Add webhook</li>
+                        <li>Payload URL: <code>https://your-domain.com/api/git/webhook/</code></li>
+                        <li>Content type: <code>application/json</code></li>
+                        <li>Secret: Enter a random string (copy it to "Webhook Secret" field above)</li>
+                        <li>Events: Select "Just the push event"</li>
+                        <li>Active: ✓ Check</li>
+                        <li>Add webhook</li>
+                    </ol>
+
+                    <h6 class="mt-4">4. Testing</h6>
+                    <p>After configuration, test the integration:</p>
+                    <ul>
+                        <li>Click "Test SSH Connection" on this page</li>
+                        <li>Go to <a href="{% url 'git_service:sync-management' %}">Sync Management</a></li>
+                        <li>Click "Pull from GitHub" to test sync</li>
+                    </ul>
+
+                    <h6 class="mt-4">5. Webhook Endpoint</h6>
+                    <p>Your webhook endpoint URL:</p>
+                    <pre class="bg-light p-3 rounded"><code>{{ request.scheme }}://{{ request.get_host }}/api/git/webhook/</code></pre>
+                    <p><small class="text-muted">Rate limited to 1 pull per minute. Returns HTTP 429 if exceeded.</small></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Security Notice -->
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="alert alert-warning" role="alert">
+                <h5 class="alert-heading"><i class="fas fa-exclamation-triangle"></i> Security Notice</h5>
+                <ul class="mb-0">
+                    <li><strong>SSH Keys:</strong> Store your private key securely. Never commit it to the repository.</li>
+                    <li><strong>Webhook Secret:</strong> Use a strong, random secret for webhook signature verification.</li>
+                    <li><strong>HTTPS:</strong> Use HTTPS for the webhook endpoint in production.</li>
+                    <li><strong>Permissions:</strong> Only grant GitWiki access to specific repositories (use deploy keys).</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// SSH Test Button Handler
+document.getElementById('testSSHButton').addEventListener('click', function() {
+    // Get current form values
+    const remoteUrl = document.getElementById('remote_url').value;
+    const sshKeyPath = document.getElementById('ssh_key_path').value;
+
+    if (!remoteUrl) {
+        alert('Please enter a GitHub remote URL first');
+        return;
+    }
+
+    // Set hidden form values
+    document.getElementById('test_remote_url').value = remoteUrl;
+    document.getElementById('test_ssh_key_path').value = sshKeyPath;
+
+    // Submit SSH test form
+    document.getElementById('sshTestForm').submit();
+});
+
+// Show/hide webhook secret
+const toggleWebhookSecret = document.createElement('button');
+toggleWebhookSecret.type = 'button';
+toggleWebhookSecret.className = 'btn btn-sm btn-outline-secondary position-absolute end-0 top-50 translate-middle-y me-2';
+toggleWebhookSecret.innerHTML = '<i class="fas fa-eye"></i>';
+toggleWebhookSecret.style.zIndex = '10';
+
+const webhookSecretInput = document.getElementById('webhook_secret');
+const webhookSecretContainer = webhookSecretInput.parentElement;
+webhookSecretContainer.style.position = 'relative';
+
+if (webhookSecretInput.value) {
+    webhookSecretContainer.appendChild(toggleWebhookSecret);
+
+    toggleWebhookSecret.addEventListener('click', function() {
+        if (webhookSecretInput.type === 'password') {
+            webhookSecretInput.type = 'text';
+            this.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        } else {
+            webhookSecretInput.type = 'password';
+            this.innerHTML = '<i class="fas fa-eye"></i>';
+        }
+    });
+}
+</script>
+{% endblock %}

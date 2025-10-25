@@ -1,0 +1,236 @@
+{% extends "editor/base.html" %}
+
+{% block title %}GitHub Sync Management - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1><i class="fas fa-sync-alt"></i> GitHub Sync Management</h1>
+            <p class="text-muted">Manage GitHub synchronization, static file rebuilds, and branch cleanup.</p>
+            <hr>
+        </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="row">
+        <div class="col-md-12">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Status Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="fas fa-download"></i> Last Pull</h5>
+                    {% if last_pull %}
+                    <p class="card-text">
+                        <strong>{{ last_pull|slice:":19" }}</strong>
+                    </p>
+                    <small class="text-muted">Last synced from GitHub</small>
+                    {% else %}
+                    <p class="card-text text-muted">Never pulled</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="fas fa-hammer"></i> Last Rebuild</h5>
+                    {% if last_rebuild %}
+                    <p class="card-text">
+                        <strong>{{ last_rebuild|slice:":19" }}</strong>
+                    </p>
+                    <small class="text-muted">Last static files rebuild</small>
+                    {% else %}
+                    <p class="card-text text-muted">Never rebuilt</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="fas fa-trash"></i> Last Cleanup</h5>
+                    {% if last_cleanup %}
+                    <p class="card-text">
+                        <strong>{{ last_cleanup|slice:":19" }}</strong>
+                    </p>
+                    <small class="text-muted">Last branch cleanup</small>
+                    {% else %}
+                    <p class="card-text text-muted">Never cleaned</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Status -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-cog"></i> Configuration Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p>
+                                <strong>GitHub Remote:</strong>
+                                {% if github_remote_url %}
+                                <span class="badge bg-success">Configured</span>
+                                <br>
+                                <code>{{ github_remote_url }}</code>
+                                {% else %}
+                                <span class="badge bg-warning">Not Configured</span>
+                                <br>
+                                <small class="text-muted">
+                                    <a href="{% url 'git_service:github-settings' %}">Configure GitHub settings</a>
+                                </small>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="col-md-6">
+                            <p>
+                                <strong>Auto-Push:</strong>
+                                {% if auto_push_enabled %}
+                                <span class="badge bg-success">Enabled</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Disabled</span>
+                                {% endif %}
+                            </p>
+                            <p>
+                                <strong>Periodic Tasks:</strong>
+                                <span class="badge bg-info">Active</span>
+                                <br>
+                                <small class="text-muted">Pull every 5 min • Cleanup daily • Rebuild weekly</small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Actions -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-hand-pointer"></i> Manual Actions</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+
+                        <div class="row">
+                            <!-- Sync Now -->
+                            <div class="col-md-4 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-sync"></i> Sync Now</h6>
+                                        <p class="card-text small">
+                                            Pull latest changes from GitHub remote repository.
+                                        </p>
+                                        <button type="submit" name="action" value="sync_now"
+                                                class="btn btn-primary w-100"
+                                                {% if not github_remote_url %}disabled{% endif %}>
+                                            <i class="fas fa-download"></i> Pull from GitHub
+                                        </button>
+                                        {% if not github_remote_url %}
+                                        <small class="text-muted">Configure GitHub settings first</small>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Rebuild Static -->
+                            <div class="col-md-4 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-hammer"></i> Rebuild Static Files</h6>
+                                        <p class="card-text small">
+                                            Regenerate all static HTML files from markdown sources.
+                                        </p>
+                                        <button type="submit" name="action" value="rebuild_static"
+                                                class="btn btn-warning w-100">
+                                            <i class="fas fa-redo"></i> Start Rebuild
+                                        </button>
+                                        <small class="text-muted">May take a few minutes</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Cleanup Branches -->
+                            <div class="col-md-4 mb-3">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-trash"></i> Cleanup Stale Branches</h6>
+                                        <p class="card-text small">
+                                            Remove old draft branches and free disk space.
+                                        </p>
+                                        <div class="input-group mb-2">
+                                            <span class="input-group-text">Age (days)</span>
+                                            <input type="number" class="form-control" name="age_days"
+                                                   value="7" min="1" max="365">
+                                        </div>
+                                        <button type="submit" name="action" value="cleanup_branches"
+                                                class="btn btn-danger w-100">
+                                            <i class="fas fa-broom"></i> Start Cleanup
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Information -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-info-circle"></i> Information</h5>
+                </div>
+                <div class="card-body">
+                    <h6>Periodic Task Schedule</h6>
+                    <ul>
+                        <li><strong>GitHub Pull:</strong> Every 5 minutes (automatic)</li>
+                        <li><strong>Branch Cleanup:</strong> Daily at 2:00 AM UTC</li>
+                        <li><strong>Static Rebuild:</strong> Weekly on Sunday at 3:00 AM UTC</li>
+                    </ul>
+
+                    <h6 class="mt-3">Manual Actions</h6>
+                    <ul>
+                        <li><strong>Sync Now:</strong> Immediately pull latest changes from GitHub. Useful when you know changes were pushed.</li>
+                        <li><strong>Rebuild Static:</strong> Regenerate all HTML files. Use after major template changes or if files are corrupted.</li>
+                        <li><strong>Cleanup Branches:</strong> Remove old draft branches that haven't been used. Default age is 7 days.</li>
+                    </ul>
+
+                    <h6 class="mt-3">Settings</h6>
+                    <p>
+                        <a href="{% url 'git_service:github-settings' %}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-cog"></i> Configure GitHub Settings
+                        </a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
