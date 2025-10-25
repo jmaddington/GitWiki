@@ -38,8 +38,21 @@ A distributed, Git-backed markdown wiki system with web-based editing, clipboard
 - ✅ 14 new grepable codes (DISPLAY-*)
 - ✅ ~1,200 lines added across 8 files
 
-**Currently**: Phase 4 - Conflict Resolution (planning complete)
-**See**: PHASE_4_PLAN.md for comprehensive implementation roadmap
+**Phase 4 Complete ✅** (October 25, 2025): Conflict Resolution
+- ✅ Backend conflict detection with 2-minute caching
+- ✅ Three-way diff extraction (base/theirs/ours)
+- ✅ Monaco Editor integration for text conflicts
+- ✅ Side-by-side image conflict resolution
+- ✅ Binary file conflict resolution
+- ✅ Conflicts dashboard with auto-refresh
+- ✅ 3 API endpoints, 2 view functions, 5 URL routes
+- ✅ 4 templates (660 lines total)
+- ✅ 6 comprehensive unit tests
+- ✅ 28 new grepable codes (GITOPS-CONFLICT*, EDITOR-CONFLICT*)
+- ✅ ~1,400 lines added across 10 files
+
+**Currently**: Phase 5 - GitHub Integration (starting)
+**See**: IMPLEMENTATION_PLAN.md for Phase 5 task breakdown
 
 ## What is GitWiki?
 
