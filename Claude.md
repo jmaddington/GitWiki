@@ -50,6 +50,14 @@ Git Service:
 - `conflict-detection` (git_operations.py:840) - Caches results for 2min to avoid expensive operations
 - `three-way-diff` (git_operations.py:931) - Extracts base, theirs, ours for Monaco Editor
 - `conflict-resolution` (git_operations.py:1004) - Retries merge after applying resolution
+- `github-pull` (git_operations.py:1137) - Handles conflicts during pull gracefully
+- `github-push` (git_operations.py:1324) - Only pushes if local is ahead
+- `branch-cleanup` (git_operations.py:1508) - Only removes inactive sessions
+- `static-rebuild` (git_operations.py:1636) - Atomic operation, old files kept until complete
+- `ssh-test` (utils.py:19) - Tests SSH authentication without modifying repository
+- `webhook-handler` (views.py:34) - Rate-limited to 1 pull/minute
+- `celery-config` (settings.py:201) - Background task configuration for GitHub sync
+- `cache-config` (settings.py:214) - Redis cache for rate limiting and conflict caching
 - `audit-trail` (git_service/models.py:80) - Complete history of all git operations for debugging
 - `config-model` (git_service/models.py:14) - Provides get/set helpers for type-safe config access
 
@@ -94,10 +102,22 @@ Git Service:
 - GITOPS-META01
 - GITOPS-MARKDOWN01
 - GITOPS-STATIC01, GITOPS-STATIC02, GITOPS-STATIC03
+- GITOPS-PULL01, GITOPS-PULL02, GITOPS-PULL03, GITOPS-PULL04, GITOPS-PULL05, GITOPS-PULL06, GITOPS-PULL07, GITOPS-PULL08, GITOPS-PULL09, GITOPS-PULL10
+- GITOPS-PUSH01, GITOPS-PUSH02, GITOPS-PUSH03, GITOPS-PUSH04, GITOPS-PUSH05, GITOPS-PUSH06, GITOPS-PUSH07, GITOPS-PUSH08, GITOPS-PUSH09, GITOPS-PUSH10, GITOPS-PUSH11
+- GITOPS-CLEANUP01, GITOPS-CLEANUP02, GITOPS-CLEANUP03, GITOPS-CLEANUP04, GITOPS-CLEANUP05, GITOPS-CLEANUP06, GITOPS-CLEANUP07, GITOPS-CLEANUP08
+- GITOPS-REBUILD01, GITOPS-REBUILD02, GITOPS-REBUILD03, GITOPS-REBUILD04, GITOPS-REBUILD05, GITOPS-REBUILD06, GITOPS-REBUILD07, GITOPS-REBUILD08, GITOPS-REBUILD09
 - API-BRANCH01, API-BRANCH02
 - API-COMMIT01, API-COMMIT02
 - API-PUBLISH01, API-PUBLISH02, API-PUBLISH03
 - API-FILE01, API-BRANCHES01
+- UTILS-SSH01, UTILS-SSH02, UTILS-SSH03, UTILS-SSH04, UTILS-SSH05, UTILS-SSH06, UTILS-SSH07
+- WEBHOOK-01, WEBHOOK-02, WEBHOOK-03, WEBHOOK-04, WEBHOOK-05, WEBHOOK-06, WEBHOOK-07
+- SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06, SYNC-07, SYNC-08, SYNC-09
+- SETTINGS-01, SETTINGS-02, SETTINGS-03
+- TASK-PULL01, TASK-PULL02, TASK-PULL03, TASK-PULL04, TASK-PULL05
+- TASK-CLEANUP01, TASK-CLEANUP02, TASK-CLEANUP03, TASK-CLEANUP04
+- TASK-REBUILD01, TASK-REBUILD02, TASK-REBUILD03, TASK-REBUILD04
+- TASK-TEST01
 
 Editor Service:
 - EDITSESS-INACTIVE01, EDITSESS-MULTI01
