@@ -506,3 +506,187 @@ class UploadImageAPIView(APIView):
                 {'error': f'Failed to upload image: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ConflictsListAPIView(APIView):
+    """
+    API endpoint to get list of all unresolved conflicts.
+
+    GET /editor/api/conflicts/
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get(self, request):
+        try:
+            repo = get_repository()
+            conflicts_data = repo.get_conflicts()
+
+            # Augment with EditSession information
+            for conflict in conflicts_data['conflicts']:
+                branch_name = conflict['branch_name']
+
+                # Get associated EditSession
+                try:
+                    session = EditSession.objects.filter(
+                        branch_name=branch_name,
+                        is_active=True
+                    ).first()
+
+                    if session:
+                        conflict['session_id'] = session.id
+                        conflict['user_name'] = session.user.username if session.user else 'Unknown'
+                        conflict['file_path'] = session.file_path
+                    else:
+                        conflict['session_id'] = None
+                        conflict['user_name'] = 'Unknown'
+                        conflict['file_path'] = conflict['file_paths'][0] if conflict['file_paths'] else 'unknown'
+                except Exception as e:
+                    logger.warning(f'Failed to get session for {branch_name}: {str(e)}')
+                    conflict['session_id'] = None
+                    conflict['user_name'] = 'Unknown'
+                    conflict['file_path'] = conflict['file_paths'][0] if conflict['file_paths'] else 'unknown'
+
+            logger.info(f"Returned {len(conflicts_data['conflicts'])} conflicts [EDITOR-CONFLICT01]")
+
+            return Response(conflicts_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f'Failed to get conflicts list: {str(e)} [EDITOR-CONFLICT02]')
+            return Response(
+                {'error': f'Failed to get conflicts: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ConflictVersionsAPIView(APIView):
+    """
+    API endpoint to get three-way diff versions for conflict resolution.
+
+    GET /editor/api/conflicts/versions/<session_id>/<file_path>/
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get(self, request, session_id, file_path):
+        try:
+            # Get edit session
+            session = EditSession.objects.get(id=session_id, is_active=True)
+
+            repo = get_repository()
+            versions = repo.get_conflict_versions(session.branch_name, file_path)
+
+            logger.info(f'Retrieved conflict versions for session {session_id}: {file_path} [EDITOR-CONFLICT03]')
+
+            return Response(versions, status=status.HTTP_200_OK)
+
+        except EditSession.DoesNotExist:
+            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT04]')
+            return Response(
+                {'error': 'Edit session not found or inactive'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f'Failed to get conflict versions: {str(e)} [EDITOR-CONFLICT05]')
+            return Response(
+                {'error': f'Failed to get conflict versions: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ResolveConflictAPIView(APIView):
+    """
+    API endpoint to resolve a conflict.
+
+    POST /editor/api/conflicts/resolve/
+    {
+        "session_id": 456,
+        "file_path": "docs/page.md",
+        "resolution_content": "resolved content...",
+        "conflict_type": "text"  // or "image_mine", "image_theirs", "binary_mine", "binary_theirs"
+    }
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def post(self, request):
+        try:
+            session_id = request.data.get('session_id')
+            file_path = request.data.get('file_path')
+            resolution_content = request.data.get('resolution_content')
+            conflict_type = request.data.get('conflict_type', 'text')
+
+            if not all([session_id, file_path, resolution_content]):
+                return Response(
+                    {'error': 'Missing required fields: session_id, file_path, resolution_content'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Get edit session
+            session = EditSession.objects.get(id=session_id, is_active=True)
+
+            # Determine if binary
+            is_binary = conflict_type in ['image_mine', 'image_theirs', 'binary_mine', 'binary_theirs']
+
+            # For binary files, resolution_content should be a path to the chosen file
+            # For text files, it's the actual resolved content
+            if is_binary and conflict_type in ['image_theirs', 'binary_theirs']:
+                # User chose the 'theirs' version (main branch)
+                # We need to get that file from main branch
+                repo = get_repository()
+                theirs_content = repo.get_file_content(file_path, branch='main')
+
+                # Write to temp location for binary handling
+                temp_path = Path(f'/tmp/{uuid.uuid4()}.tmp')
+                temp_path.write_bytes(theirs_content.encode() if isinstance(theirs_content, str) else theirs_content)
+                resolution_content = str(temp_path)
+
+            # User info
+            user_info = {
+                'name': session.user.get_full_name() or session.user.username if session.user else 'Unknown',
+                'email': session.user.email if session.user else 'unknown@example.com'
+            }
+
+            repo = get_repository()
+            result = repo.resolve_conflict(
+                branch_name=session.branch_name,
+                file_path=file_path,
+                resolution_content=resolution_content,
+                user_info=user_info,
+                is_binary=is_binary
+            )
+
+            if result['merged']:
+                # Conflict resolved and merged successfully
+                # Mark session as inactive
+                session.mark_inactive()
+
+                logger.info(f'Conflict resolved and merged for session {session_id}: {file_path} [EDITOR-CONFLICT06]')
+
+                return Response({
+                    'success': True,
+                    'merged': True,
+                    'message': 'Conflict resolved and changes published',
+                    'commit_hash': result['commit_hash']
+                }, status=status.HTTP_200_OK)
+            else:
+                # Conflict resolution applied but still has conflicts
+                logger.warning(f'Conflict resolution incomplete for session {session_id}: {file_path} [EDITOR-CONFLICT07]')
+
+                return Response({
+                    'success': True,
+                    'merged': False,
+                    'message': 'Conflict resolution applied but merge still has conflicts',
+                    'commit_hash': result['commit_hash'],
+                    'still_conflicts': result['still_conflicts']
+                }, status=status.HTTP_409_CONFLICT)
+
+        except EditSession.DoesNotExist:
+            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT08]')
+            return Response(
+                {'error': 'Edit session not found or inactive'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f'Failed to resolve conflict: {str(e)} [EDITOR-CONFLICT09]')
+            return Response(
+                {'error': f'Failed to resolve conflict: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
