@@ -6,7 +6,14 @@ A distributed, Git-backed markdown wiki system with web-based editing, clipboard
 
 🚧 **Under Active Development** 🚧
 
-Currently implementing Phase 1: Foundation
+**Phase 1 Complete**: Git Service core operations and API
+- ✅ Django project structure with 3 apps
+- ✅ Core models (Configuration, GitOperation, EditSession)
+- ✅ Git Service operations (branch, commit, merge)
+- ✅ REST API endpoints
+- ✅ Comprehensive test suite (11 tests passing)
+
+**Currently**: Phase 2 - Editor Service (starting next)
 
 ## What is GitWiki?
 
@@ -65,7 +72,28 @@ Each app maintains 95%+ separation of concerns and could be extracted into separ
 
 ## Quick Start
 
-*Installation instructions will be added once Phase 1 is complete.*
+```bash
+# Clone the repository
+git clone https://github.com/jmaddington/GitWiki.git
+cd GitWiki
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run migrations
+python manage.py migrate
+
+# Initialize default configurations
+python manage.py init_config
+
+# Create a superuser (optional, for admin access)
+python manage.py createsuperuser
+
+# Start development server
+python manage.py runserver
+```
+
+The Git Service API will be available at `http://localhost:8000/api/git/`
 
 ## Development
 
@@ -99,8 +127,60 @@ python manage.py runserver
 ### Running Tests
 
 ```bash
+# Run all tests
 python manage.py test
+
+# Run tests for a specific app
+python manage.py test git_service
+
+# Run with verbose output
+python manage.py test --verbosity=2
 ```
+
+## Available API Endpoints (Phase 1)
+
+The following REST API endpoints are currently available:
+
+### Git Service API (`/api/git/`)
+
+- **POST** `/api/git/branch/create/` - Create a new draft branch
+  ```json
+  {"user_id": 123}
+  ```
+
+- **POST** `/api/git/commit/` - Commit changes to a draft branch
+  ```json
+  {
+    "branch_name": "draft-123-abc456",
+    "file_path": "docs/page.md",
+    "content": "# Page Title\nContent...",
+    "commit_message": "Update page",
+    "user_info": {
+      "name": "John Doe",
+      "email": "john@example.com"
+    }
+  }
+  ```
+
+- **POST** `/api/git/publish/` - Publish draft to main (with conflict detection)
+  ```json
+  {
+    "branch_name": "draft-123-abc456",
+    "auto_push": true
+  }
+  ```
+
+- **GET** `/api/git/file/?file_path=docs/page.md&branch=main` - Get file content
+
+- **GET** `/api/git/branches/?pattern=draft-*` - List branches
+
+## Admin Interface
+
+Access the Django admin at `http://localhost:8000/admin/` to:
+- View and edit Configuration settings
+- Browse GitOperation audit logs
+- Manage EditSessions
+- Manage users
 
 ## Project Timeline
 
@@ -126,6 +206,6 @@ For questions or support, please refer to the project documentation or create an
 
 ---
 
-**Current Progress**: Phase 1 - Foundation (In Progress)
+**Current Progress**: ✅ Phase 1 Complete - Git Service implemented with full API and test coverage
 
 *Last Updated: October 25, 2025*
