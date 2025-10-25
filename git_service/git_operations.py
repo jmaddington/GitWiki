@@ -25,6 +25,11 @@ from git import Repo, GitCommandError
 from django.conf import settings
 from django.contrib.auth.models import User
 import logging
+import markdown
+from markdown.extensions.toc import TocExtension
+from markdown.extensions.codehilite import CodeHiliteExtension
+from markdown.extensions.fenced_code import FencedCodeExtension
+from markdown.extensions.tables import TableExtension
 
 from .models import Configuration, GitOperation
 
@@ -430,8 +435,14 @@ class GitRepository:
 
             logger.info(f'Successfully merged {branch_name} to main [GITOPS-PUBLISH02]')
 
-            # TODO: Trigger static file generation here
-            # TODO: Push to remote if auto_push is True
+            # Trigger static file generation for main branch
+            try:
+                self.write_branch_to_disk('main', user)
+                logger.info(f'Generated static files after merge [GITOPS-PUBLISH04]')
+            except Exception as e:
+                logger.warning(f'Static generation failed after merge: {str(e)} [GITOPS-PUBLISH05]')
+
+            # TODO: Push to remote if auto_push is True (Phase 5)
 
             return {
                 'success': True,
@@ -522,6 +533,305 @@ class GitRepository:
         except Exception as e:
             logger.error(f'Failed to list branches: {str(e)} [GITOPS-LIST01]')
             return []
+
+    def get_file_history(self, file_path: str, branch: str = 'main', limit: int = 50) -> Dict:
+        """
+        Get commit history for a specific file.
+
+        Args:
+            file_path: Relative path to file
+            branch: Branch name (default: 'main')
+            limit: Maximum number of commits to return
+
+        Returns:
+            Dict with file_path and commits list
+
+        AIDEV-NOTE: file-history; Used for page history display
+        """
+        try:
+            # Save current branch
+            current_branch = self.repo.active_branch.name
+
+            # Checkout target branch
+            if branch in [head.name for head in self.repo.heads]:
+                self.repo.heads[branch].checkout()
+            else:
+                raise GitRepositoryError(f"Branch {branch} not found")
+
+            commits = []
+
+            # Get commits that modified this file
+            try:
+                for commit in self.repo.iter_commits(paths=file_path, max_count=limit):
+                    commit_data = {
+                        'hash': commit.hexsha,
+                        'short_hash': commit.hexsha[:8],
+                        'author': commit.author.name,
+                        'email': commit.author.email,
+                        'date': commit.committed_datetime.isoformat(),
+                        'message': commit.message.strip(),
+                    }
+
+                    # Try to get diff stats
+                    try:
+                        if commit.parents:
+                            diffs = commit.parents[0].diff(commit, paths=file_path, create_patch=False)
+                            if diffs:
+                                diff = diffs[0]
+                                commit_data['changes'] = {
+                                    'additions': diff.diff.count(b'\n+') if hasattr(diff, 'diff') and diff.diff else 0,
+                                    'deletions': diff.diff.count(b'\n-') if hasattr(diff, 'diff') and diff.diff else 0
+                                }
+                        else:
+                            commit_data['changes'] = {'additions': 0, 'deletions': 0}
+                    except Exception:
+                        commit_data['changes'] = {'additions': 0, 'deletions': 0}
+
+                    commits.append(commit_data)
+            except Exception as e:
+                logger.warning(f'No history found for {file_path}: {str(e)} [GITOPS-HISTORY01]')
+
+            # Return to original branch
+            if current_branch != branch:
+                self.repo.heads[current_branch].checkout()
+
+            return {
+                'file_path': file_path,
+                'branch': branch,
+                'commits': commits,
+                'total': len(commits)
+            }
+
+        except GitRepositoryError:
+            raise
+        except Exception as e:
+            logger.error(f'Failed to get file history: {str(e)} [GITOPS-HISTORY02]')
+            raise GitRepositoryError(f"Failed to get file history: {str(e)}")
+
+    def _generate_metadata(self, file_path: str, branch: str) -> Dict:
+        """
+        Generate metadata for a file.
+
+        Args:
+            file_path: Relative path to file
+            branch: Branch name
+
+        Returns:
+            Metadata dict
+        """
+        try:
+            history = self.get_file_history(file_path, branch, limit=100)
+            commits = history.get('commits', [])
+
+            if not commits:
+                return {
+                    'file_path': file_path,
+                    'branch': branch,
+                    'last_commit': None,
+                    'history_summary': {
+                        'total_commits': 0,
+                        'contributors': [],
+                        'created': None,
+                        'last_modified': None
+                    }
+                }
+
+            # Get unique contributors
+            contributors = list(set(c['author'] for c in commits))
+
+            return {
+                'file_path': file_path,
+                'branch': branch,
+                'last_commit': {
+                    'hash': commits[0]['hash'],
+                    'short_hash': commits[0]['short_hash'],
+                    'author': commits[0]['author'],
+                    'email': commits[0]['email'],
+                    'date': commits[0]['date'],
+                    'message': commits[0]['message']
+                },
+                'history_summary': {
+                    'total_commits': len(commits),
+                    'contributors': contributors,
+                    'created': commits[-1]['date'] if commits else None,
+                    'last_modified': commits[0]['date'] if commits else None
+                }
+            }
+
+        except Exception as e:
+            logger.warning(f'Failed to generate metadata for {file_path}: {str(e)} [GITOPS-META01]')
+            return {
+                'file_path': file_path,
+                'branch': branch,
+                'last_commit': None,
+                'history_summary': {'total_commits': 0, 'contributors': [], 'created': None, 'last_modified': None}
+            }
+
+    def _markdown_to_html(self, content: str) -> Tuple[str, str]:
+        """
+        Convert markdown to HTML with table of contents.
+
+        Args:
+            content: Markdown content
+
+        Returns:
+            Tuple of (html_content, toc_html)
+
+        AIDEV-NOTE: markdown-conversion; Uses markdown library with extensions for tables, code, TOC
+        """
+        try:
+            md = markdown.Markdown(extensions=[
+                TocExtension(title='Table of Contents', toc_depth='2-4'),
+                CodeHiliteExtension(css_class='highlight', linenums=False),
+                FencedCodeExtension(),
+                TableExtension(),
+                'nl2br',
+                'sane_lists'
+            ])
+
+            html_content = md.convert(content)
+            toc_html = md.toc if hasattr(md, 'toc') else ''
+
+            return html_content, toc_html
+
+        except Exception as e:
+            logger.error(f'Failed to convert markdown: {str(e)} [GITOPS-MARKDOWN01]')
+            return f'<p>Error rendering markdown: {str(e)}</p>', ''
+
+    def write_branch_to_disk(self, branch_name: str = 'main', user: Optional[User] = None) -> Dict:
+        """
+        Export branch state to static files with HTML generation.
+
+        Args:
+            branch_name: Branch to export (default: 'main')
+            user: Optional User instance for logging
+
+        Returns:
+            Dict with success status and file counts
+
+        Raises:
+            GitRepositoryError: If static generation fails
+
+        AIDEV-NOTE: static-generation; Atomic operation using temp directory
+        """
+        start_time = time.time()
+        temp_dir = None
+
+        try:
+            # Save current branch
+            current_branch = self.repo.active_branch.name
+
+            # Checkout target branch
+            if branch_name in [head.name for head in self.repo.heads]:
+                self.repo.heads[branch_name].checkout()
+            else:
+                raise GitRepositoryError(f"Branch {branch_name} not found")
+
+            # Create temp directory
+            temp_uuid = str(uuid.uuid4())[:8]
+            temp_dir = settings.WIKI_STATIC_PATH / f'.tmp-{temp_uuid}'
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            files_written = 0
+            markdown_files = []
+
+            # Copy all files from repository
+            for item in self.repo_path.rglob('*'):
+                if item.is_file() and '.git' not in str(item):
+                    rel_path = item.relative_to(self.repo_path)
+                    dest_path = temp_dir / rel_path
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Copy file
+                    shutil.copy2(item, dest_path)
+                    files_written += 1
+
+                    # Track markdown files for HTML generation
+                    if item.suffix == '.md':
+                        markdown_files.append(str(rel_path))
+
+            # Generate HTML and metadata for markdown files
+            for md_file in markdown_files:
+                try:
+                    # Read markdown content
+                    md_path = temp_dir / md_file
+                    md_content = md_path.read_text(encoding='utf-8')
+
+                    # Convert to HTML
+                    html_content, toc_html = self._markdown_to_html(md_content)
+
+                    # Generate metadata
+                    metadata = self._generate_metadata(md_file, branch_name)
+
+                    # Write HTML file
+                    html_file = md_path.with_suffix('.html')
+                    html_file.write_text(html_content, encoding='utf-8')
+                    files_written += 1
+
+                    # Write metadata file
+                    meta_file = md_path.with_suffix('.md.metadata')
+                    metadata['toc'] = toc_html
+                    meta_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+                    files_written += 1
+
+                except Exception as e:
+                    logger.warning(f'Failed to process {md_file}: {str(e)} [GITOPS-STATIC01]')
+
+            # Atomic move to final location
+            final_dir = settings.WIKI_STATIC_PATH / branch_name
+            if final_dir.exists():
+                shutil.rmtree(final_dir)
+            shutil.move(str(temp_dir), str(final_dir))
+
+            # Return to original branch
+            if current_branch != branch_name:
+                self.repo.heads[current_branch].checkout()
+
+            execution_time = int((time.time() - start_time) * 1000)
+
+            # Log operation
+            GitOperation.log_operation(
+                operation_type='static_generation',
+                user=user,
+                branch_name=branch_name,
+                request_params={'branch': branch_name},
+                response_code=200,
+                success=True,
+                git_output=f'Generated {files_written} files',
+                execution_time_ms=execution_time
+            )
+
+            logger.info(f'Generated static files for {branch_name}: {files_written} files [GITOPS-STATIC02]')
+
+            return {
+                'success': True,
+                'branch_name': branch_name,
+                'files_written': files_written,
+                'markdown_files': len(markdown_files),
+                'execution_time_ms': execution_time
+            }
+
+        except Exception as e:
+            # Cleanup temp directory on error
+            if temp_dir and temp_dir.exists():
+                shutil.rmtree(temp_dir)
+
+            execution_time = int((time.time() - start_time) * 1000)
+            error_msg = f'Failed to generate static files: {str(e)}'
+
+            GitOperation.log_operation(
+                operation_type='static_generation',
+                user=user,
+                branch_name=branch_name,
+                request_params={'branch': branch_name},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=execution_time
+            )
+
+            logger.error(f'{error_msg} [GITOPS-STATIC03]')
+            raise GitRepositoryError(error_msg)
 
 
 # Global repository instance

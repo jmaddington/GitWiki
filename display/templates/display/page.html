@@ -1,0 +1,184 @@
+{% extends "display/base.html" %}
+
+{% block title %}{{ breadcrumbs|last|default:'Home' }} - GitWiki{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Main Content Area -->
+    <div class="col-lg-9">
+        <!-- Breadcrumbs -->
+        {% if breadcrumbs %}
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                {% for crumb in breadcrumbs %}
+                <li class="breadcrumb-item {% if forloop.last %}active{% endif %}">
+                    {% if forloop.last %}
+                        {{ crumb.name }}
+                    {% else %}
+                        <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ol>
+        </nav>
+        {% endif %}
+
+        <!-- Page Actions -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                {% if branch and branch != 'main' %}
+                <span class="badge bg-warning">
+                    <i class="fas fa-code-branch"></i> {{ branch }}
+                </span>
+                {% endif %}
+            </div>
+            <div class="btn-group" role="group">
+                {% if edit_url and not is_directory %}
+                <a href="{{ edit_url }}" class="btn btn-sm btn-primary">
+                    <i class="fas fa-edit"></i> Edit Page
+                </a>
+                {% endif %}
+                {% if file_path and not is_directory %}
+                <a href="/wiki/history/{{ file_path }}/" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-history"></i> History
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Page Content -->
+        <div class="wiki-content">
+            {% if is_directory %}
+                {{ content|safe }}
+                <h2><i class="fas fa-folder-open"></i> Contents</h2>
+                {% if directory_listing %}
+                <ul class="directory-listing">
+                    {% for item in directory_listing %}
+                    <li>
+                        <a href="{{ item.url }}">
+                            {% if item.type == 'directory' %}
+                                <i class="fas fa-folder text-warning"></i>
+                            {% else %}
+                                <i class="fas fa-file-alt text-primary"></i>
+                            {% endif %}
+                            {{ item.name }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted">This directory is empty.</p>
+                {% endif %}
+            {% else %}
+                {{ content|safe }}
+            {% endif %}
+        </div>
+
+        <!-- Page Metadata -->
+        {% if metadata and metadata.last_commit %}
+        <div class="page-metadata">
+            <div class="row">
+                <div class="col-md-6">
+                    <strong><i class="fas fa-user"></i> Last edited by:</strong>
+                    {{ metadata.last_commit.author }}
+                </div>
+                <div class="col-md-6 text-end">
+                    <strong><i class="fas fa-clock"></i> Last modified:</strong>
+                    {{ metadata.last_commit.date|slice:":10" }}
+                </div>
+            </div>
+            {% if metadata.history_summary.total_commits %}
+            <div class="row mt-2">
+                <div class="col-md-6">
+                    <strong><i class="fas fa-code-commit"></i> Total edits:</strong>
+                    {{ metadata.history_summary.total_commits }}
+                </div>
+                <div class="col-md-6 text-end">
+                    <strong><i class="fas fa-users"></i> Contributors:</strong>
+                    {{ metadata.history_summary.contributors|length }}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-3">
+        <div class="wiki-sidebar">
+            <!-- Table of Contents -->
+            {% if toc %}
+            <h5><i class="fas fa-list"></i> Contents</h5>
+            <div class="toc">
+                {{ toc|safe }}
+            </div>
+            <hr>
+            {% endif %}
+
+            <!-- Directory Listing -->
+            {% if directory_listing and not is_directory %}
+            <h5><i class="fas fa-folder"></i> In this section</h5>
+            <ul class="directory-listing">
+                {% for item in directory_listing %}
+                <li>
+                    <a href="{{ item.url }}">
+                        {% if item.type == 'directory' %}
+                            <i class="fas fa-folder text-warning"></i>
+                        {% else %}
+                            <i class="fas fa-file-alt text-primary"></i>
+                        {% endif %}
+                        {{ item.name }}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            <hr>
+            {% endif %}
+
+            <!-- Quick Actions -->
+            <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+            <div class="d-grid gap-2">
+                {% if edit_url and not is_directory %}
+                <a href="{{ edit_url }}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-edit"></i> Edit
+                </a>
+                {% endif %}
+                <a href="/wiki/search/" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-search"></i> Search
+                </a>
+                <a href="/" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-home"></i> Home
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Initialize syntax highlighting
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAll();
+        }
+    });
+
+    // Smooth scroll for TOC links
+    document.querySelectorAll('.toc a').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            const href = this.getAttribute('href');
+            if (href.startsWith('#')) {
+                e.preventDefault();
+                const target = document.querySelector(href);
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

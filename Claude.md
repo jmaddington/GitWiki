@@ -37,13 +37,20 @@ Granular commits: One logical change per commit. Tag AI-generated commits: e.g.,
 The git_service/git_operations.py module uses a singleton pattern via get_repository(). All Git operations go through the GitRepository class to ensure consistency.
 
 Key AIDEV-NOTEs in codebase:
+
+Git Service:
 - `repo-path-config` (settings.py:20) - Git repository location configuration
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
 - `repo-singleton` (git_operations.py:43) - Single instance manages all git operations
 - `dry-run-merge` (git_operations.py:271) - Uses --no-commit to test merge without modifying repo
 - `binary-files` (git_operations.py:205) - is_binary flag for images/binary files already on disk
+- `file-history` (git_operations.py:543) - Used for page history display
+- `markdown-conversion` (git_operations.py:674) - Uses markdown library with extensions for tables, code, TOC
+- `static-generation` (git_operations.py:709) - Atomic operation using temp directory
 - `audit-trail` (git_service/models.py:80) - Complete history of all git operations for debugging
 - `config-model` (git_service/models.py:14) - Provides get/set helpers for type-safe config access
+
+Editor Service:
 - `session-tracking` (editor/models.py:13) - Maps users to their draft branches
 - `editor-serializers` (editor/serializers.py:5) - Validation for all editor API endpoints
 - `path-validation` (editor/serializers.py:16) - Prevent directory traversal attacks
@@ -51,6 +58,10 @@ Key AIDEV-NOTEs in codebase:
 - `image-path-structure` (editor/api.py:539) - Images stored in images/{branch_name}/
 - `editor-views` (editor/views.py:4) - UI views for markdown editing
 - `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
+
+Display Service:
+- `display-views` (display/views.py:6) - Wiki page rendering and search functionality
+- `display-urls` (display/urls.py:6) - Wiki page URLs and search routing
 
 ### Testing
 
@@ -73,8 +84,12 @@ Git Service:
 - GITOPS-BRANCH01, GITOPS-BRANCH02
 - GITOPS-COMMIT01, GITOPS-COMMIT02
 - GITOPS-CONFLICT01
-- GITOPS-PUBLISH01, GITOPS-PUBLISH02, GITOPS-PUBLISH03
+- GITOPS-PUBLISH01, GITOPS-PUBLISH02, GITOPS-PUBLISH03, GITOPS-PUBLISH04, GITOPS-PUBLISH05
 - GITOPS-READ01, GITOPS-LIST01
+- GITOPS-HISTORY01, GITOPS-HISTORY02
+- GITOPS-META01
+- GITOPS-MARKDOWN01
+- GITOPS-STATIC01, GITOPS-STATIC02, GITOPS-STATIC03
 - API-BRANCH01, API-BRANCH02
 - API-COMMIT01, API-COMMIT02
 - API-PUBLISH01, API-PUBLISH02, API-PUBLISH03
@@ -88,6 +103,14 @@ Editor Service:
 - EDITOR-PUBLISH01, EDITOR-PUBLISH02, EDITOR-PUBLISH03, EDITOR-PUBLISH04, EDITOR-PUBLISH05
 - EDITOR-UPLOAD01, EDITOR-UPLOAD02, EDITOR-UPLOAD03
 - EDITOR-VIEW01, EDITOR-VIEW02, EDITOR-VIEW03, EDITOR-VIEW04
+
+Display Service:
+- DISPLAY-META01
+- DISPLAY-DIR01
+- DISPLAY-HOME01, DISPLAY-HOME02, DISPLAY-HOME03
+- DISPLAY-PAGE01, DISPLAY-PAGE02, DISPLAY-PAGE03, DISPLAY-PAGE04
+- DISPLAY-SEARCH01, DISPLAY-SEARCH02, DISPLAY-SEARCH03
+- DISPLAY-HISTORY01, DISPLAY-HISTORY02
 
 Settings:
 - SETTINGS-LOG01
