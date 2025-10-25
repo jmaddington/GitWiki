@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}GitWiki{% endblock %}</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+
+    <style>
+        :root {
+            --wiki-primary: #2c3e50;
+            --wiki-secondary: #34495e;
+            --wiki-accent: #3498db;
+            --wiki-bg: #f8f9fa;
+            --wiki-border: #dee2e6;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--wiki-bg);
+            color: #2c3e50;
+            line-height: 1.7;
+        }
+
+        /* Navigation */
+        .navbar {
+            background-color: var(--wiki-primary);
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+            color: #fff !important;
+        }
+
+        .navbar-nav .nav-link {
+            color: rgba(255,255,255,0.9) !important;
+            transition: color 0.2s;
+        }
+
+        .navbar-nav .nav-link:hover {
+            color: #fff !important;
+        }
+
+        /* Breadcrumbs */
+        .breadcrumb {
+            background-color: #fff;
+            padding: 1rem 1.5rem;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,.05);
+        }
+
+        /* Main content */
+        .wiki-content {
+            background-color: #fff;
+            padding: 2rem;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.05);
+            min-height: 400px;
+        }
+
+        .wiki-content h1 {
+            color: var(--wiki-primary);
+            border-bottom: 3px solid var(--wiki-accent);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .wiki-content h2 {
+            color: var(--wiki-secondary);
+            border-bottom: 2px solid var(--wiki-border);
+            padding-bottom: 0.4rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .wiki-content h3 {
+            color: var(--wiki-secondary);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .wiki-content img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.1);
+            margin: 1rem 0;
+        }
+
+        .wiki-content table {
+            width: 100%;
+            margin: 1rem 0;
+            border-collapse: collapse;
+        }
+
+        .wiki-content table th,
+        .wiki-content table td {
+            padding: 0.75rem;
+            border: 1px solid var(--wiki-border);
+        }
+
+        .wiki-content table th {
+            background-color: var(--wiki-bg);
+            font-weight: 600;
+        }
+
+        .wiki-content table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        .wiki-content blockquote {
+            border-left: 4px solid var(--wiki-accent);
+            padding-left: 1rem;
+            margin-left: 0;
+            color: #555;
+            font-style: italic;
+        }
+
+        .wiki-content code {
+            background-color: #f4f4f4;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+
+        .wiki-content pre {
+            background-color: #2d2d2d;
+            color: #ccc;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        .wiki-content pre code {
+            background-color: transparent;
+            padding: 0;
+            color: inherit;
+        }
+
+        /* Sidebar */
+        .wiki-sidebar {
+            background-color: #fff;
+            padding: 1.5rem;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,.05);
+            position: sticky;
+            top: 20px;
+        }
+
+        .wiki-sidebar h5 {
+            color: var(--wiki-primary);
+            border-bottom: 2px solid var(--wiki-accent);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .wiki-sidebar .toc {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .wiki-sidebar .toc a {
+            color: var(--wiki-secondary);
+            text-decoration: none;
+            padding: 0.25rem 0;
+            display: block;
+        }
+
+        .wiki-sidebar .toc a:hover {
+            color: var(--wiki-accent);
+        }
+
+        .wiki-sidebar .toc ul {
+            padding-left: 1rem;
+            list-style: none;
+        }
+
+        /* Directory listing */
+        .directory-listing {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .directory-listing li {
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--wiki-border);
+        }
+
+        .directory-listing li:last-child {
+            border-bottom: none;
+        }
+
+        .directory-listing a {
+            color: var(--wiki-secondary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+        }
+
+        .directory-listing a:hover {
+            color: var(--wiki-accent);
+        }
+
+        .directory-listing i {
+            margin-right: 0.5rem;
+            width: 20px;
+            text-align: center;
+        }
+
+        /* Metadata footer */
+        .page-metadata {
+            background-color: var(--wiki-bg);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 2rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        /* Search */
+        .search-result {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--wiki-border);
+        }
+
+        .search-result:last-child {
+            border-bottom: none;
+        }
+
+        .search-result h3 {
+            margin-top: 0;
+        }
+
+        .search-result mark {
+            background-color: #fff3cd;
+            padding: 0.1rem 0.2rem;
+        }
+
+        /* Footer */
+        .wiki-footer {
+            background-color: var(--wiki-primary);
+            color: #fff;
+            padding: 2rem 0;
+            margin-top: 3rem;
+        }
+
+        .wiki-footer a {
+            color: #fff;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .wiki-sidebar {
+                margin-top: 2rem;
+                position: static;
+            }
+        }
+
+        /* Print styles */
+        @media print {
+            .navbar, .wiki-sidebar, .breadcrumb, .page-metadata, .wiki-footer {
+                display: none;
+            }
+
+            .wiki-content {
+                box-shadow: none;
+                padding: 0;
+            }
+        }
+    </style>
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-book"></i> GitWiki
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="fas fa-home"></i> Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/wiki/search/">
+                            <i class="fas fa-search"></i> Search
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/editor/sessions/">
+                            <i class="fas fa-edit"></i> My Drafts
+                        </a>
+                    </li>
+                </ul>
+                <form class="d-flex" action="/wiki/search/" method="get">
+                    <input class="form-control me-2" type="search" name="q" placeholder="Search..." aria-label="Search" value="{{ query|default:'' }}">
+                    <button class="btn btn-outline-light" type="submit">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </form>
+                <ul class="navbar-nav ms-3">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/admin/">
+                            <i class="fas fa-cog"></i> Admin
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid mt-4">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Footer -->
+    <footer class="wiki-footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <p>&copy; 2025 GitWiki - Distributed Wiki System</p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <p>Powered by Django & Git</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Prism.js for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

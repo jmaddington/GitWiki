@@ -20,6 +20,7 @@ django-cors-headers==4.3.0
 # Markdown processing
 markdown==3.5.1
 pymdown-extensions==10.5
+Pygments==2.17.2  # Code syntax highlighting
 
 # Image processing
 Pillow==10.1.0

@@ -22,4 +22,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/git/", include('git_service.urls')),
     path("editor/", include('editor.urls')),
+    path("wiki/", include('display.urls')),  # Wiki pages
+    path("", include('display.urls')),  # Home page at root
 ]

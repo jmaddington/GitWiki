@@ -1,0 +1,135 @@
+{% extends "display/base.html" %}
+
+{% block title %}
+{% if query %}Search: {{ query }} - GitWiki{% else %}Search - GitWiki{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 offset-lg-2">
+        <!-- Search Header -->
+        <div class="wiki-content">
+            <h1><i class="fas fa-search"></i> Search Wiki</h1>
+
+            <!-- Search Form -->
+            <form action="/wiki/search/" method="get" class="mb-4">
+                <div class="input-group input-group-lg">
+                    <input type="text"
+                           class="form-control"
+                           name="q"
+                           placeholder="Search pages..."
+                           value="{{ query|default:'' }}"
+                           autofocus>
+                    <button class="btn btn-primary" type="submit">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+                {% if branch and branch != 'main' %}
+                <input type="hidden" name="branch" value="{{ branch }}">
+                {% endif %}
+            </form>
+
+            {% if error %}
+            <!-- Error Message -->
+            <div class="alert alert-danger" role="alert">
+                <i class="fas fa-exclamation-triangle"></i> Error: {{ error }}
+            </div>
+            {% endif %}
+
+            {% if query %}
+                {% if total > 0 %}
+                <!-- Results Summary -->
+                <div class="alert alert-info" role="alert">
+                    <i class="fas fa-info-circle"></i>
+                    Found <strong>{{ total }}</strong> result{{ total|pluralize }} for "<strong>{{ query }}</strong>"
+                    {% if branch and branch != 'main' %}
+                    in branch <span class="badge bg-warning">{{ branch }}</span>
+                    {% endif %}
+                </div>
+
+                <!-- Search Results -->
+                {% for result in results %}
+                <div class="search-result">
+                    <h3>
+                        <a href="{{ result.url }}">{{ result.title }}</a>
+                        <small class="text-muted">
+                            <i class="fas fa-file-alt"></i> {{ result.path }}
+                        </small>
+                    </h3>
+                    <p>{{ result.snippet|safe }}</p>
+                    <p class="text-muted small">
+                        <i class="fas fa-check-circle"></i> {{ result.matches }} match{{ result.matches|pluralize:"es" }}
+                    </p>
+                </div>
+                {% endfor %}
+
+                <!-- Pagination -->
+                {% if page_obj.has_other_pages %}
+                <nav aria-label="Search results pagination">
+                    <ul class="pagination justify-content-center">
+                        {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?q={{ query }}&page={{ page_obj.previous_page_number }}{% if branch and branch != 'main' %}&branch={{ branch }}{% endif %}">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span>
+                        </li>
+                        {% endif %}
+
+                        <li class="page-item disabled">
+                            <span class="page-link">
+                                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                            </span>
+                        </li>
+
+                        {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?q={{ query }}&page={{ page_obj.next_page_number }}{% if branch and branch != 'main' %}&branch={{ branch }}{% endif %}">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </li>
+                        {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">Next <i class="fas fa-chevron-right"></i></span>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+
+                {% else %}
+                <!-- No Results -->
+                <div class="alert alert-warning" role="alert">
+                    <i class="fas fa-exclamation-circle"></i>
+                    No results found for "<strong>{{ query }}</strong>".
+                </div>
+
+                <div class="mt-4">
+                    <h4>Search Tips:</h4>
+                    <ul>
+                        <li>Check your spelling</li>
+                        <li>Try different keywords</li>
+                        <li>Use more general terms</li>
+                        <li>Try searching in a different branch</li>
+                    </ul>
+                </div>
+                {% endif %}
+            {% else %}
+            <!-- Search Instructions -->
+            <div class="alert alert-light border" role="alert">
+                <h5><i class="fas fa-lightbulb"></i> Search Tips</h5>
+                <ul class="mb-0">
+                    <li>Enter keywords to search across all wiki pages</li>
+                    <li>Search looks in page titles and content</li>
+                    <li>Results are ranked by relevance</li>
+                    <li>Use the search box in the navigation for quick access</li>
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
