@@ -4,13 +4,13 @@
 
 ## 🚀 IMPLEMENTATION STATUS & DEVELOPER HANDOFF
 
-**Last Updated:** October 25, 2025 (Phase 4 COMPLETE)
-**Current Branch:** `claude/review-project-docs-011CUUeDLGKqsmPynJueiBJm`
+**Last Updated:** October 25, 2025 (Phase 5 Planning Complete)
+**Current Branch:** `claude/review-project-documentation-011CUUhwTxwUjWRgfxq5UU8s`
 
 ### 📊 Current Project Status
 
 **Completed:** ✅ Phases 1, 2, 3, 4 (Weeks 1-6)
-**Current:** 🎉 Phase 4 COMPLETE - Ready for Phase 5
+**Current:** 📋 Phase 5 PLANNED - Ready to Implement
 **Remaining:** ⏳ Phases 5, 6, 7 (Weeks 7-10)
 
 **What's Working Now:**
@@ -47,12 +47,15 @@
 - **Total:** 1,409 lines added
 
 **What Needs to Be Built Next (Phase 5 - GitHub Integration):**
-- ⏳ pull_from_github() - Sync from remote
-- ⏳ push_to_github() - Push changes
-- ⏳ Webhook handler with rate limiting
-- ⏳ Celery periodic tasks
-- ⏳ Branch cleanup automation
-- ⏳ Full static rebuild task
+- 📋 pull_from_github() - Sync from remote
+- 📋 push_to_github() - Push changes
+- 📋 Webhook handler with rate limiting (max 1/min)
+- 📋 Celery periodic tasks (pull/cleanup/rebuild)
+- 📋 Branch cleanup automation (daily)
+- 📋 Full static rebuild task (weekly)
+- 📋 Admin UI for manual sync
+- 📋 SSH connection testing utility
+- **📄 See PHASE_5_PLAN.md for detailed 8-10 day roadmap**
 
 **Architecture Quality:** ✅ Excellent
 - 100% alignment with original architectural vision
@@ -323,56 +326,61 @@ python manage.py runserver
 
 ---
 
-### 🔨 NEXT: PHASE 4 - Conflict Resolution (Week 6) - Ready to Begin
+### 🔨 NEXT: PHASE 5 - GitHub Integration (Week 7) - Ready to Begin
 
 **Priority: HIGH - Start Here**
 
-**Goal:** Merge conflict detection and resolution with Monaco Editor
+**Goal:** Implement GitHub synchronization with webhooks, Celery tasks, and branch cleanup
 
-**Status:** ✅ Planning complete - See PHASE_4_PLAN.md for comprehensive 8-10 day implementation roadmap
+**Status:** 📋 Planning complete - See PHASE_5_PLAN.md for comprehensive 8-10 day implementation roadmap
 
 **Quick Overview:**
 
-1. **Backend (Days 1-5)**
-   - Implement `get_conflicts()` with 2-minute caching
-   - Implement `resolve_conflict()` with retry logic
-   - Create conflict resolution API endpoints
-   - Add three-way diff extraction (`get_conflict_versions()`)
-   - Write comprehensive unit and integration tests
+1. **Core GitHub Operations (Days 1-5)**
+   - Implement SSH key management and validation
+   - Implement `pull_from_github()` with conflict handling
+   - Implement `push_to_github()` with divergence detection
+   - Create webhook handler with rate limiting (1/min)
+   - Implement `cleanup_stale_branches()` and `full_static_rebuild()`
 
-2. **Frontend (Days 6-10)**
-   - Create conflicts dashboard (list all unresolved conflicts)
-   - Integrate Monaco Editor for three-way text diff
-   - Create image conflict resolution (side-by-side preview)
-   - Create binary file conflict resolution (choose one)
-   - Add auto-refresh and error handling
+2. **Celery Integration & UI (Days 6-10)**
+   - Set up Celery with Redis for background tasks
+   - Create periodic tasks (pull every 5min, cleanup daily, rebuild weekly)
+   - Build admin sync management page (manual triggers)
+   - Build GitHub settings page (SSH config, remote URL)
+   - Write comprehensive integration tests
 
 **Key Files to Create:**
-- `editor/templates/editor/conflicts.html` - Dashboard
-- `editor/templates/editor/resolve_conflict.html` - Monaco three-way diff
-- `editor/templates/editor/resolve_image_conflict.html` - Image chooser
-- `editor/templates/editor/resolve_binary_conflict.html` - Binary chooser
+- `config/celery.py` - Celery configuration
+- `git_service/tasks.py` - Periodic tasks (pull, cleanup, rebuild)
+- `git_service/utils.py` - SSH testing utility
+- `git_service/templates/sync.html` - Sync management page
+- `git_service/templates/github_settings.html` - GitHub configuration
 
 **Key Methods to Add:**
-- `git_operations.get_conflicts()` - List all conflicts with caching
-- `git_operations.resolve_conflict()` - Apply resolution and retry merge
-- `git_operations.get_conflict_versions()` - Extract base/theirs/ours
-- API endpoints in `editor/api.py` for conflict management
+- `git_operations.pull_from_github()` - Sync from remote
+- `git_operations.push_to_github()` - Push to remote
+- `git_operations.cleanup_stale_branches()` - Remove old drafts
+- `git_operations.full_static_rebuild()` - Regenerate all static files
+- `views.github_webhook_handler()` - Handle GitHub webhooks
+- `utils.test_ssh_connection()` - Test SSH authentication
 
-**Documentation:** PHASE_4_PLAN.md contains:
-- Detailed technical specifications
-- Implementation order (day-by-day)
+**Documentation:** PHASE_5_PLAN.md contains:
+- Detailed technical specifications for GitHub operations
+- Day-by-day implementation roadmap (8-10 days)
 - Code examples for all methods
-- Testing strategy
-- Success criteria
+- Celery setup and configuration
+- SSH connection testing
+- Webhook implementation with rate limiting
+- Testing strategy and success criteria
 - Risk analysis with mitigations
-- Self-review checklist
 
 **Next Steps:**
-1. Read PHASE_4_PLAN.md thoroughly
-2. Start with backend: `get_conflicts()` implementation
-3. Follow day-by-day plan in PHASE_4_PLAN.md
-4. Create phase summary when complete
+1. Read PHASE_5_PLAN.md thoroughly
+2. Install dependencies: `celery`, `redis`, `django-celery-beat`, `django-redis`
+3. Start with SSH configuration and `pull_from_github()`
+4. Follow day-by-day plan in PHASE_5_PLAN.md
+5. Create PHASE_5_SUMMARY.md when complete
 
 ---
 
@@ -419,28 +427,29 @@ python manage.py runserver
 - ✅ **Phase 1** (Weeks 1-2): Foundation - Git Service **COMPLETE**
 - ✅ **Phase 2** (Weeks 3-4): Editor Service - Web editing interface **COMPLETE**
 - ✅ **Phase 3** (Week 5): Display Service - Static content serving **COMPLETE**
-- 🔨 **Phase 4** (Week 6): Conflict Resolution - Monaco Editor integration ← **YOU ARE HERE** (Planning Complete)
-- ⏳ **Phase 5** (Week 7): GitHub Integration - Webhooks, Celery tasks ← **NEXT AFTER PHASE 4**
+- ✅ **Phase 4** (Week 6): Conflict Resolution - Monaco Editor integration **COMPLETE**
+- 🔨 **Phase 5** (Week 7): GitHub Integration - Webhooks, Celery tasks ← **YOU ARE HERE** (Planning Complete)
 - ⏳ **Phase 6** (Week 8): Configuration & Permissions - Access control
 - ⏳ **Phase 7** (Weeks 9-10): Polish & Deployment - Production ready
 
-**Project Progress:** 50% complete (5 of 10 weeks) | **Next Milestone:** Phase 4 implementation
+**Project Progress:** 60% complete (6 of 10 weeks) | **Next Milestone:** Phase 5 implementation
 
 ---
 
 ### 📚 ESSENTIAL READING FOR NEXT DEVELOPER
 
-**For Phase 4 Implementation:**
-1. **PHASE_4_PLAN.md** - ⭐ START HERE: Comprehensive 8-10 day implementation roadmap with code examples
-2. **PHASE_3_SUMMARY.md** - What was just completed (display service)
-3. **Claude.md** - Development guidelines, AIDEV-NOTE locations, grepable codes (48+ codes documented)
+**For Phase 5 Implementation:**
+1. **PHASE_5_PLAN.md** - ⭐ START HERE: Comprehensive 8-10 day implementation roadmap with code examples
+2. **PHASE_4_SUMMARY.md** - What was just completed (conflict resolution)
+3. **Claude.md** - Development guidelines, AIDEV-NOTE locations, grepable codes (104+ codes documented)
 
 **For Understanding Current System:**
 4. **PHASE_1_REVIEW.md** - Comprehensive code review, architectural analysis
 5. **PHASE_2_SUMMARY.md** - Editor service implementation details
-6. **IMPLEMENTATION_PLAN.md** - Detailed task breakdown for all phases
-7. **README.md** - Setup guide, current API documentation
-8. This document (sections below) - Django app structure details and API specifications
+6. **PHASE_3_SUMMARY.md** - Display service implementation details
+7. **IMPLEMENTATION_PLAN.md** - Detailed task breakdown for all phases
+8. **README.md** - Setup guide, current API documentation
+9. This document (sections below) - Django app structure details and API specifications
 
 **Questions?** Check git commit history with `[AI]` tag for implementation context.
 
