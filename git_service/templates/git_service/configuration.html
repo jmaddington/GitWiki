@@ -1,0 +1,229 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Configuration - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1><i class="fas fa-cog"></i> Wiki Configuration</h1>
+            <p class="text-muted">Manage wiki settings, permissions, and preferences.</p>
+            <hr>
+        </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="row">
+        <div class="col-md-12">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Configuration Form -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5><i class="fas fa-shield-alt"></i> Permission System</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="configForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="save_config">
+
+                        <!-- Permission Level -->
+                        <div class="mb-4">
+                            <label for="permission_level" class="form-label fw-bold">
+                                <i class="fas fa-lock"></i> Permission Level
+                                <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select form-select-lg" id="permission_level" name="permission_level" required>
+                                <option value="open" {% if permission_level == 'open' %}selected{% endif %}>
+                                    Open - Public wiki (anyone can view and edit)
+                                </option>
+                                <option value="read_only_public" {% if permission_level == 'read_only_public' %}selected{% endif %}>
+                                    Read-Only Public - Anyone can view, login required to edit (recommended)
+                                </option>
+                                <option value="private" {% if permission_level == 'private' %}selected{% endif %}>
+                                    Private - Login required for all access
+                                </option>
+                            </select>
+                            <div class="form-text">
+                                <strong>Permission Modes:</strong>
+                                <ul>
+                                    <li><strong>Open:</strong> Fully public wiki. Anyone can view and edit pages without authentication.</li>
+                                    <li><strong>Read-Only Public:</strong> Public viewing, authenticated editing. Users must login to create or edit pages. <span class="badge bg-success">Recommended</span></li>
+                                    <li><strong>Private:</strong> Completely private. Users must login to view any content.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Wiki Settings Section -->
+                        <h5 class="mb-3"><i class="fas fa-book"></i> Wiki Settings</h5>
+
+                        <!-- Wiki Title -->
+                        <div class="mb-3">
+                            <label for="wiki_title" class="form-label">
+                                <i class="fas fa-heading"></i> Wiki Title
+                            </label>
+                            <input type="text" class="form-control" id="wiki_title" name="wiki_title"
+                                   value="{{ wiki_title }}"
+                                   placeholder="GitWiki"
+                                   maxlength="100">
+                            <div class="form-text">
+                                Display name for your wiki (shown in navigation and page titles).
+                            </div>
+                        </div>
+
+                        <!-- Wiki Description -->
+                        <div class="mb-4">
+                            <label for="wiki_description" class="form-label">
+                                <i class="fas fa-info-circle"></i> Wiki Description
+                            </label>
+                            <textarea class="form-control" id="wiki_description" name="wiki_description"
+                                      rows="3"
+                                      placeholder="A distributed, Git-backed wiki system"
+                                      maxlength="500">{{ wiki_description }}</textarea>
+                            <div class="form-text">
+                                Brief description of your wiki (optional).
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- File Upload Settings Section -->
+                        <h5 class="mb-3"><i class="fas fa-upload"></i> File Upload Settings</h5>
+
+                        <!-- Max Image Size -->
+                        <div class="mb-3">
+                            <label for="max_image_size_mb" class="form-label">
+                                <i class="fas fa-image"></i> Maximum Image Size (MB)
+                            </label>
+                            <input type="number" class="form-control" id="max_image_size_mb" name="max_image_size_mb"
+                                   value="{{ max_image_size_mb }}"
+                                   min="1" max="100"
+                                   required>
+                            <div class="form-text">
+                                Maximum allowed size for image uploads (1-100 MB). Default: 10 MB.
+                            </div>
+                        </div>
+
+                        <!-- Supported Image Formats -->
+                        <div class="mb-4">
+                            <label for="supported_image_formats" class="form-label">
+                                <i class="fas fa-file-image"></i> Supported Image Formats
+                            </label>
+                            <input type="text" class="form-control" id="supported_image_formats" name="supported_image_formats"
+                                   value="{{ supported_image_formats }}"
+                                   placeholder="png,jpg,jpeg,webp">
+                            <div class="form-text">
+                                Comma-separated list of allowed image file extensions (lowercase, no dots).
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <!-- Maintenance Settings Section -->
+                        <h5 class="mb-3"><i class="fas fa-broom"></i> Maintenance Settings</h5>
+
+                        <!-- Branch Cleanup Days -->
+                        <div class="mb-3">
+                            <label for="branch_cleanup_days" class="form-label">
+                                <i class="fas fa-calendar-alt"></i> Branch Cleanup Threshold (Days)
+                            </label>
+                            <input type="number" class="form-control" id="branch_cleanup_days" name="branch_cleanup_days"
+                                   value="{{ branch_cleanup_days }}"
+                                   min="1" max="365"
+                                   required>
+                            <div class="form-text">
+                                Automatically delete draft branches older than this many days (1-365 days). Default: 7 days.
+                                Active editing sessions are preserved.
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-start mt-4">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-save"></i> Save Configuration
+                            </button>
+                            <a href="/" class="btn btn-secondary btn-lg">
+                                <i class="fas fa-times"></i> Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Info Card -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                    <h5><i class="fas fa-info-circle"></i> Configuration Information</h5>
+                </div>
+                <div class="card-body">
+                    <h6>Current Configuration:</h6>
+                    <ul>
+                        <li><strong>Permission Level:</strong>
+                            <span class="badge bg-{% if permission_level == 'open' %}warning{% elif permission_level == 'read_only_public' %}success{% else %}danger{% endif %}">
+                                {{ permission_level|upper }}
+                            </span>
+                        </li>
+                        <li><strong>Wiki Title:</strong> {{ wiki_title }}</li>
+                        <li><strong>Max Image Size:</strong> {{ max_image_size_mb }} MB</li>
+                        <li><strong>Branch Cleanup:</strong> {{ branch_cleanup_days }} days</li>
+                        <li><strong>Image Formats:</strong> {{ supported_image_formats }}</li>
+                    </ul>
+
+                    <hr>
+
+                    <h6>Related Settings:</h6>
+                    <ul class="list-unstyled">
+                        <li>
+                            <a href="{% url 'git_service:github-settings' %}" class="text-decoration-none">
+                                <i class="fab fa-github"></i> GitHub Integration Settings
+                            </a>
+                        </li>
+                        <li>
+                            <a href="{% url 'git_service:sync-management' %}" class="text-decoration-none">
+                                <i class="fas fa-sync"></i> Sync Management
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/admin/" class="text-decoration-none">
+                                <i class="fas fa-tools"></i> Django Admin
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Highlight current permission level
+document.getElementById('permission_level').addEventListener('change', function() {
+    const level = this.value;
+    let message = '';
+
+    if (level === 'open') {
+        message = 'Warning: Open mode allows anyone to edit your wiki. Use with caution.';
+        alert(message);
+    } else if (level === 'private') {
+        message = 'Private mode requires login for all access. Make sure you have user accounts set up.';
+    }
+});
+</script>
+{% endblock %}
