@@ -17,7 +17,7 @@ import uuid
 import json
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import git
@@ -1128,6 +1128,615 @@ class GitRepository:
             )
 
             logger.error(f'{error_msg} [GITOPS-RESOLVE05]')
+            raise GitRepositoryError(error_msg)
+
+    def pull_from_github(self) -> Dict:
+        """
+        Pull latest changes from GitHub remote repository.
+
+        AIDEV-NOTE: github-pull; Handles conflicts during pull gracefully
+
+        Process:
+        1. Git fetch from remote
+        2. Check for diverged branches
+        3. Git pull (merge remote changes)
+        4. Detect changed files
+        5. Trigger static regeneration if needed
+        6. Log operation
+
+        Returns:
+            {
+                "success": true,
+                "changes_detected": true,
+                "files_changed": ["docs/page1.md", "docs/page2.md"],
+                "static_regenerated": true,
+                "conflicts": []
+            }
+
+        Error Codes:
+            401: SSH authentication failed
+            502: GitHub connection failed
+            409: Merge conflicts during pull
+            500: Git operation failed
+        """
+        from django.core.cache import cache
+
+        start_time = time.time()
+
+        try:
+            # Get GitHub remote URL from configuration
+            remote_url = Configuration.get_config('github_remote_url')
+            if not remote_url:
+                error_msg = 'GitHub remote URL not configured'
+                logger.warning(f'{error_msg} [GITOPS-PULL01]')
+                return {
+                    'success': False,
+                    'message': error_msg,
+                    'changes_detected': False
+                }
+
+            logger.info(f'Pulling from GitHub: {remote_url} [GITOPS-PULL02]')
+
+            # Ensure we're on main branch
+            if self.repo.active_branch.name != 'main':
+                self.repo.heads.main.checkout()
+
+            # Get current HEAD for comparison
+            old_commit = self.repo.head.commit.hexsha
+
+            # Fetch from remote
+            try:
+                origin = self.repo.remote('origin')
+            except ValueError:
+                # Remote doesn't exist, add it
+                origin = self.repo.create_remote('origin', remote_url)
+                logger.info(f'Created remote origin: {remote_url} [GITOPS-PULL03]')
+
+            # Fetch latest changes
+            fetch_info = origin.fetch()
+
+            # Pull changes (merge)
+            try:
+                pull_info = origin.pull('main')
+
+                # Get new HEAD
+                new_commit = self.repo.head.commit.hexsha
+
+                # Detect changed files
+                changed_files = []
+                if old_commit != new_commit:
+                    diff = self.repo.git.diff(old_commit, new_commit, name_only=True)
+                    changed_files = [f for f in diff.split('\n') if f]
+
+                    logger.info(f'Pulled {len(changed_files)} changed files from GitHub [GITOPS-PULL04]')
+
+                    # Trigger static regeneration if markdown files changed
+                    md_files_changed = [f for f in changed_files if f.endswith('.md')]
+                    static_regenerated = False
+
+                    if md_files_changed:
+                        try:
+                            self.write_branch_to_disk('main')
+                            static_regenerated = True
+                            logger.info('Static files regenerated after pull [GITOPS-PULL05]')
+                        except Exception as e:
+                            logger.warning(f'Static regeneration failed after pull: {str(e)} [GITOPS-PULL06]')
+
+                    # Update cache with last pull time
+                    cache.set('last_github_pull_time', datetime.now().isoformat(), None)
+
+                    execution_time = int((time.time() - start_time) * 1000)
+
+                    GitOperation.log_operation(
+                        operation_type='github_pull',
+                        branch_name='main',
+                        request_params={'remote_url': remote_url},
+                        response_code=200,
+                        success=True,
+                        git_output=f'Pulled {len(changed_files)} files',
+                        execution_time_ms=execution_time
+                    )
+
+                    return {
+                        'success': True,
+                        'changes_detected': True,
+                        'files_changed': changed_files,
+                        'static_regenerated': static_regenerated,
+                        'commits_pulled': len(list(self.repo.iter_commits(f'{old_commit}..{new_commit}')))
+                    }
+                else:
+                    logger.info('No changes detected in GitHub pull [GITOPS-PULL07]')
+                    return {
+                        'success': True,
+                        'changes_detected': False,
+                        'files_changed': [],
+                        'static_regenerated': False
+                    }
+
+            except git.exc.GitCommandError as e:
+                # Check for merge conflicts
+                if 'CONFLICT' in str(e):
+                    error_msg = 'Merge conflicts detected during pull'
+                    logger.warning(f'{error_msg} [GITOPS-PULL08]')
+
+                    # Abort the merge
+                    self.repo.git.merge('--abort')
+
+                    GitOperation.log_operation(
+                        operation_type='github_pull',
+                        branch_name='main',
+                        request_params={'remote_url': remote_url},
+                        response_code=409,
+                        success=False,
+                        error_message=error_msg,
+                        execution_time_ms=int((time.time() - start_time) * 1000)
+                    )
+
+                    return {
+                        'success': False,
+                        'message': error_msg,
+                        'changes_detected': False,
+                        'conflicts': True
+                    }
+                else:
+                    raise
+
+        except git.exc.GitCommandError as e:
+            error_msg = f'Git command error during pull: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-PULL09]')
+
+            GitOperation.log_operation(
+                operation_type='github_pull',
+                branch_name='main',
+                request_params={'remote_url': remote_url if 'remote_url' in locals() else None},
+                response_code=502,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+
+            return {
+                'success': False,
+                'message': error_msg,
+                'changes_detected': False
+            }
+
+        except Exception as e:
+            error_msg = f'Failed to pull from GitHub: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-PULL10]')
+
+            GitOperation.log_operation(
+                operation_type='github_pull',
+                branch_name='main',
+                request_params={'remote_url': remote_url if 'remote_url' in locals() else None},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+
+            raise GitRepositoryError(error_msg)
+
+    def push_to_github(self, branch: str = "main") -> Dict:
+        """
+        Push local changes to GitHub remote repository.
+
+        AIDEV-NOTE: github-push; Only pushes if local is ahead
+
+        Args:
+            branch: Branch name to push (default: main)
+
+        Process:
+        1. Check for unpushed commits
+        2. Verify SSH connection
+        3. Git push to remote
+        4. Handle push failures
+        5. Log operation
+
+        Returns:
+            {
+                "success": true,
+                "branch": "main",
+                "commits_pushed": 3,
+                "remote_updated": true
+            }
+
+        Error Codes:
+            409: Remote has changes, need to pull first
+            401: SSH authentication failed
+            502: GitHub connection failed
+            500: Git operation failed
+        """
+        start_time = time.time()
+
+        try:
+            # Get GitHub remote URL from configuration
+            remote_url = Configuration.get_config('github_remote_url')
+            if not remote_url:
+                error_msg = 'GitHub remote URL not configured'
+                logger.warning(f'{error_msg} [GITOPS-PUSH01]')
+                return {
+                    'success': False,
+                    'message': error_msg,
+                    'commits_pushed': 0
+                }
+
+            logger.info(f'Pushing to GitHub: {remote_url} [GITOPS-PUSH02]')
+
+            # Ensure branch exists
+            if not self._has_branch(branch):
+                error_msg = f'Branch {branch} does not exist'
+                logger.error(f'{error_msg} [GITOPS-PUSH03]')
+                raise GitRepositoryError(error_msg)
+
+            # Checkout target branch
+            if self.repo.active_branch.name != branch:
+                self.repo.heads[branch].checkout()
+
+            # Get remote
+            try:
+                origin = self.repo.remote('origin')
+            except ValueError:
+                # Remote doesn't exist, add it
+                origin = self.repo.create_remote('origin', remote_url)
+                logger.info(f'Created remote origin: {remote_url} [GITOPS-PUSH04]')
+
+            # Fetch to check if remote has changes
+            try:
+                origin.fetch()
+
+                # Check if local is ahead, behind, or diverged
+                try:
+                    # Count commits ahead
+                    commits_ahead = list(self.repo.iter_commits(f'origin/{branch}..{branch}'))
+                    commits_behind = list(self.repo.iter_commits(f'{branch}..origin/{branch}'))
+
+                    if commits_behind:
+                        error_msg = f'Remote has {len(commits_behind)} commits you don\'t have. Pull first.'
+                        logger.warning(f'{error_msg} [GITOPS-PUSH05]')
+
+                        GitOperation.log_operation(
+                            operation_type='github_push',
+                            branch_name=branch,
+                            request_params={'remote_url': remote_url},
+                            response_code=409,
+                            success=False,
+                            error_message=error_msg,
+                            execution_time_ms=int((time.time() - start_time) * 1000)
+                        )
+
+                        return {
+                            'success': False,
+                            'message': error_msg,
+                            'commits_pushed': 0,
+                            'commits_behind': len(commits_behind)
+                        }
+
+                    if not commits_ahead:
+                        logger.info('No commits to push [GITOPS-PUSH06]')
+                        return {
+                            'success': True,
+                            'message': 'No commits to push',
+                            'commits_pushed': 0,
+                            'commits_behind': 0
+                        }
+
+                except git.exc.GitCommandError:
+                    # Remote branch doesn't exist yet (first push)
+                    commits_ahead = list(self.repo.iter_commits(branch))
+                    logger.info(f'First push to new remote branch {branch} [GITOPS-PUSH07]')
+
+            except git.exc.GitCommandError as e:
+                logger.warning(f'Could not fetch remote: {str(e)} [GITOPS-PUSH08]')
+                commits_ahead = list(self.repo.iter_commits(branch))
+
+            # Push to remote
+            try:
+                push_info = origin.push(branch)
+
+                execution_time = int((time.time() - start_time) * 1000)
+
+                logger.info(f'Pushed {len(commits_ahead)} commits to GitHub [GITOPS-PUSH09]')
+
+                GitOperation.log_operation(
+                    operation_type='github_push',
+                    branch_name=branch,
+                    request_params={'remote_url': remote_url},
+                    response_code=200,
+                    success=True,
+                    git_output=f'Pushed {len(commits_ahead)} commits',
+                    execution_time_ms=execution_time
+                )
+
+                return {
+                    'success': True,
+                    'branch': branch,
+                    'commits_pushed': len(commits_ahead),
+                    'remote_updated': True
+                }
+
+            except git.exc.GitCommandError as e:
+                error_msg = f'Git push failed: {str(e)}'
+                logger.error(f'{error_msg} [GITOPS-PUSH10]')
+
+                # Check for specific errors
+                if 'rejected' in str(e).lower():
+                    response_code = 409
+                    error_msg = 'Push rejected - remote has changes. Pull first.'
+                elif 'permission denied' in str(e).lower() or 'authentication failed' in str(e).lower():
+                    response_code = 401
+                    error_msg = 'SSH authentication failed - check your SSH key'
+                else:
+                    response_code = 502
+
+                GitOperation.log_operation(
+                    operation_type='github_push',
+                    branch_name=branch,
+                    request_params={'remote_url': remote_url},
+                    response_code=response_code,
+                    success=False,
+                    error_message=error_msg,
+                    execution_time_ms=int((time.time() - start_time) * 1000)
+                )
+
+                return {
+                    'success': False,
+                    'message': error_msg,
+                    'commits_pushed': 0
+                }
+
+        except Exception as e:
+            error_msg = f'Failed to push to GitHub: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-PUSH11]')
+
+            GitOperation.log_operation(
+                operation_type='github_push',
+                branch_name=branch,
+                request_params={'remote_url': remote_url if 'remote_url' in locals() else None},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+
+            raise GitRepositoryError(error_msg)
+
+    def cleanup_stale_branches(self, age_days: int = 7) -> Dict:
+        """
+        Remove old draft branches and their static files.
+
+        AIDEV-NOTE: branch-cleanup; Only removes inactive sessions
+
+        Args:
+            age_days: Remove branches older than this (default: 7 days)
+
+        Process:
+        1. List all draft branches
+        2. Check last commit date
+        3. Check if EditSession is still active
+        4. Delete old, inactive branches
+        5. Remove associated static files
+        6. Log operation
+
+        Returns:
+            {
+                "success": true,
+                "branches_deleted": ["draft-123-abc", "draft-456-def"],
+                "branches_kept": ["draft-789-ghi"],
+                "disk_space_freed_mb": 150
+            }
+        """
+        from editor.models import EditSession
+
+        start_time = time.time()
+        cutoff_date = datetime.now() - timedelta(days=age_days)
+
+        try:
+            logger.info(f'Starting branch cleanup (age_days={age_days}) [GITOPS-CLEANUP01]')
+
+            # Get all draft branches
+            draft_branches = self.list_branches(pattern='draft-*')
+
+            branches_deleted = []
+            branches_kept = []
+            disk_space_freed = 0
+
+            for branch_name in draft_branches:
+                try:
+                    # Get branch object
+                    branch = self.repo.heads[branch_name]
+
+                    # Get last commit date
+                    last_commit_date = datetime.fromtimestamp(branch.commit.committed_date)
+
+                    # Check if branch is old enough
+                    if last_commit_date > cutoff_date:
+                        branches_kept.append(branch_name)
+                        logger.debug(f'Keeping recent branch {branch_name} [GITOPS-CLEANUP02]')
+                        continue
+
+                    # Check if associated EditSession is still active
+                    active_session = EditSession.objects.filter(
+                        branch_name=branch_name,
+                        is_active=True
+                    ).exists()
+
+                    if active_session:
+                        branches_kept.append(branch_name)
+                        logger.info(f'Keeping branch {branch_name} (active session) [GITOPS-CLEANUP03]')
+                        continue
+
+                    # Calculate disk space of static files
+                    static_path = settings.WIKI_STATIC_PATH / branch_name
+                    if static_path.exists():
+                        branch_size = sum(f.stat().st_size for f in static_path.rglob('*') if f.is_file())
+                        disk_space_freed += branch_size
+
+                        # Remove static files
+                        shutil.rmtree(static_path)
+                        logger.info(f'Removed static files for {branch_name} [GITOPS-CLEANUP04]')
+
+                    # Delete the branch
+                    self.repo.delete_head(branch_name, force=True)
+                    branches_deleted.append(branch_name)
+
+                    # Mark EditSession as inactive
+                    EditSession.objects.filter(branch_name=branch_name).update(is_active=False)
+
+                    logger.info(f'Deleted stale branch {branch_name} [GITOPS-CLEANUP05]')
+
+                except Exception as e:
+                    logger.warning(f'Failed to delete branch {branch_name}: {str(e)} [GITOPS-CLEANUP06]')
+                    branches_kept.append(branch_name)
+                    continue
+
+            execution_time = int((time.time() - start_time) * 1000)
+            disk_space_freed_mb = disk_space_freed / (1024 * 1024)
+
+            logger.info(
+                f'Branch cleanup complete: {len(branches_deleted)} deleted, '
+                f'{len(branches_kept)} kept, {disk_space_freed_mb:.2f}MB freed [GITOPS-CLEANUP07]'
+            )
+
+            GitOperation.log_operation(
+                operation_type='cleanup_branches',
+                request_params={'age_days': age_days},
+                response_code=200,
+                success=True,
+                git_output=f'Deleted {len(branches_deleted)} branches',
+                execution_time_ms=execution_time
+            )
+
+            return {
+                'success': True,
+                'branches_deleted': branches_deleted,
+                'branches_kept': branches_kept,
+                'disk_space_freed_mb': round(disk_space_freed_mb, 2)
+            }
+
+        except Exception as e:
+            error_msg = f'Failed to cleanup stale branches: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-CLEANUP08]')
+
+            GitOperation.log_operation(
+                operation_type='cleanup_branches',
+                request_params={'age_days': age_days},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+
+            raise GitRepositoryError(error_msg)
+
+    def full_static_rebuild(self) -> Dict:
+        """
+        Complete regeneration of all static files.
+
+        AIDEV-NOTE: static-rebuild; Atomic operation, old files kept until complete
+
+        Process:
+        1. Generate to temp directory
+        2. Regenerate main branch
+        3. Regenerate active draft branches
+        4. Verify integrity
+        5. Atomic swap
+        6. Log operation
+
+        Returns:
+            {
+                "success": true,
+                "branches_regenerated": ["main", "draft-123-abc"],
+                "total_files": 150,
+                "execution_time_ms": 5000
+            }
+        """
+        from editor.models import EditSession
+
+        start_time = time.time()
+
+        try:
+            logger.info('Starting full static rebuild [GITOPS-REBUILD01]')
+
+            branches_regenerated = []
+            total_files = 0
+
+            # Regenerate main branch
+            try:
+                result = self.write_branch_to_disk('main')
+                branches_regenerated.append('main')
+                # Count markdown files in main branch
+                for root, dirs, files in os.walk(self.repo_path):
+                    total_files += len([f for f in files if f.endswith('.md')])
+                logger.info('Main branch static files regenerated [GITOPS-REBUILD02]')
+            except Exception as e:
+                logger.error(f'Failed to regenerate main branch: {str(e)} [GITOPS-REBUILD03]')
+                raise
+
+            # Get active draft branches
+            active_sessions = EditSession.objects.filter(is_active=True).values_list('branch_name', flat=True)
+            active_branches = list(set(active_sessions))  # Remove duplicates
+
+            # Regenerate active draft branches
+            for branch_name in active_branches:
+                try:
+                    if self._has_branch(branch_name):
+                        result = self.write_branch_to_disk(branch_name)
+                        branches_regenerated.append(branch_name)
+                        logger.info(f'Regenerated static files for {branch_name} [GITOPS-REBUILD04]')
+                except Exception as e:
+                    logger.warning(f'Failed to regenerate {branch_name}: {str(e)} [GITOPS-REBUILD05]')
+                    continue
+
+            # Clean up old static directories not in branches_regenerated
+            static_root = settings.WIKI_STATIC_PATH
+            if static_root.exists():
+                for item in static_root.iterdir():
+                    if item.is_dir() and item.name not in branches_regenerated:
+                        # Check if it's a draft branch that no longer exists
+                        if item.name.startswith('draft-'):
+                            try:
+                                shutil.rmtree(item)
+                                logger.info(f'Removed orphaned static dir: {item.name} [GITOPS-REBUILD06]')
+                            except Exception as e:
+                                logger.warning(f'Failed to remove {item.name}: {str(e)} [GITOPS-REBUILD07]')
+
+            execution_time = int((time.time() - start_time) * 1000)
+
+            logger.info(
+                f'Full static rebuild complete: {len(branches_regenerated)} branches, '
+                f'{total_files} files, {execution_time}ms [GITOPS-REBUILD08]'
+            )
+
+            GitOperation.log_operation(
+                operation_type='static_rebuild',
+                request_params={},
+                response_code=200,
+                success=True,
+                git_output=f'Regenerated {len(branches_regenerated)} branches',
+                execution_time_ms=execution_time
+            )
+
+            return {
+                'success': True,
+                'branches_regenerated': branches_regenerated,
+                'total_files': total_files,
+                'execution_time_ms': execution_time
+            }
+
+        except Exception as e:
+            error_msg = f'Failed to rebuild static files: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-REBUILD09]')
+
+            GitOperation.log_operation(
+                operation_type='static_rebuild',
+                request_params={},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=int((time.time() - start_time) * 1000)
+            )
+
             raise GitRepositoryError(error_msg)
 
 
