@@ -1,0 +1,523 @@
+{% extends "editor/base.html" %}
+
+{% block title %}Edit: {{ file_path }} - GitWiki{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Main Editor Area -->
+        <div class="col-lg-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-edit"></i> Editing: <code>{{ file_path }}</code>
+                    </h5>
+                    <div>
+                        <span id="status-indicator" class="badge bg-secondary">
+                            <span class="status-indicator status-saved"></span>
+                            <span id="status-text">Loading...</span>
+                        </span>
+                        <span id="session-info" class="badge bg-info ms-2">
+                            Session: <span id="session-id">-</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Editor Toolbar (Custom Actions) -->
+                    <div class="btn-toolbar mb-3" role="toolbar">
+                        <div class="btn-group me-2" role="group">
+                            <button type="button" class="btn btn-primary" id="btn-commit" title="Commit changes to draft branch">
+                                <i class="fas fa-save"></i> Commit Draft
+                            </button>
+                            <button type="button" class="btn btn-success" id="btn-publish" title="Publish to main branch">
+                                <i class="fas fa-upload"></i> Publish
+                            </button>
+                        </div>
+                        <div class="btn-group me-2" role="group">
+                            <button type="button" class="btn btn-secondary" id="btn-upload-image" title="Upload image">
+                                <i class="fas fa-image"></i> Upload Image
+                            </button>
+                        </div>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-secondary" id="btn-preview" title="Toggle preview">
+                                <i class="fas fa-eye"></i> Preview
+                            </button>
+                            <a href="/editor/sessions/" class="btn btn-outline-secondary" title="View all sessions">
+                                <i class="fas fa-list"></i> My Drafts
+                            </a>
+                            <a href="/" class="btn btn-outline-danger" title="Cancel editing">
+                                <i class="fas fa-times"></i> Cancel
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Markdown Editor -->
+                    <textarea id="markdown-editor"></textarea>
+
+                    <!-- Hidden file input for image upload -->
+                    <input type="file" id="image-file-input" accept="image/png,image/jpeg,image/jpg,image/webp" style="display: none;">
+
+                    <!-- Validation Errors -->
+                    <div id="validation-errors" class="mt-3" style="display: none;">
+                        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                            <strong>Validation Warnings:</strong>
+                            <ul id="validation-list" class="mb-0 mt-2"></ul>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer text-muted">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <small>
+                                <i class="fas fa-code-branch"></i> Branch: <code id="branch-name">-</code>
+                            </small>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <small id="last-save-time">Auto-save: Not yet saved</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Commit Modal -->
+<div class="modal fade" id="commitModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Commit Changes</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="commit-message" class="form-label">Commit Message *</label>
+                    <input type="text" class="form-control" id="commit-message"
+                           placeholder="Describe your changes..." required>
+                    <div class="form-text">Briefly describe what you changed</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-confirm-commit">
+                    <i class="fas fa-save"></i> Commit
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Publish Confirmation Modal -->
+<div class="modal fade" id="publishModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Publish to Main Branch</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to publish your changes to the main branch?</p>
+                <p class="text-muted"><small>This will merge your draft branch and make changes visible to everyone.</small></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="btn-confirm-publish">
+                    <i class="fas fa-upload"></i> Publish Now
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // AIDEV-NOTE: editor-client; SimpleMDE editor with auto-save and clipboard paste
+
+    // Configuration
+    const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
+    const LOCALSTORAGE_KEY = 'gitwiki_draft_{{ file_path }}';
+    const API_BASE = '/editor/api';
+
+    // State
+    let editorState = {
+        sessionId: null,
+        branchName: null,
+        filePath: '{{ file_path }}',
+        userId: {{ user.id|default:"1" }},
+        lastSaved: null,
+        modified: false,
+        autoSaveTimer: null,
+        simplemde: null
+    };
+
+    // Initialize SimpleMDE
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeEditor();
+        startEditSession();
+    });
+
+    function initializeEditor() {
+        editorState.simplemde = new SimpleMDE({
+            element: document.getElementById('markdown-editor'),
+            spellChecker: false,
+            autosave: {
+                enabled: false // We'll handle auto-save ourselves
+            },
+            placeholder: 'Start writing your markdown content here...',
+            status: ['lines', 'words', 'cursor'],
+            toolbar: [
+                'bold', 'italic', 'heading', '|',
+                'quote', 'unordered-list', 'ordered-list', '|',
+                'link', 'image', '|',
+                'preview', 'side-by-side', 'fullscreen', '|',
+                'guide'
+            ],
+            shortcuts: {
+                'togglePreview': 'Ctrl-P',
+                'toggleSideBySide': null,
+                'toggleFullScreen': 'F11'
+            }
+        });
+
+        // Track modifications
+        editorState.simplemde.codemirror.on('change', function() {
+            editorState.modified = true;
+            updateStatus('modified', 'Modified (not saved)');
+        });
+
+        // Handle clipboard paste for images
+        editorState.simplemde.codemirror.on('paste', handlePaste);
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+S to commit
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                showCommitModal();
+            }
+        });
+    }
+
+    async function startEditSession() {
+        updateStatus('loading', 'Starting edit session...');
+
+        try {
+            const response = await axios.post(`${API_BASE}/start/`, {
+                user_id: editorState.userId,
+                file_path: editorState.filePath
+            });
+
+            const data = response.data;
+            editorState.sessionId = data.session_id;
+            editorState.branchName = data.branch_name;
+
+            // Set editor content
+            editorState.simplemde.value(data.content);
+
+            // Update UI
+            document.getElementById('session-id').textContent = data.session_id;
+            document.getElementById('branch-name').textContent = data.branch_name;
+
+            updateStatus('saved', data.resumed ? 'Session resumed' : 'Ready to edit');
+
+            // Start auto-save
+            startAutoSave();
+
+            // Check localStorage for unsaved changes
+            checkLocalStorage();
+
+        } catch (error) {
+            console.error('Failed to start edit session:', error);
+            updateStatus('error', 'Failed to start session');
+            alert('Error: ' + (error.response?.data?.error || 'Failed to start edit session'));
+        }
+    }
+
+    function startAutoSave() {
+        if (editorState.autoSaveTimer) {
+            clearInterval(editorState.autoSaveTimer);
+        }
+
+        editorState.autoSaveTimer = setInterval(async () => {
+            if (editorState.modified) {
+                await saveDraft();
+            }
+        }, AUTO_SAVE_INTERVAL);
+    }
+
+    async function saveDraft() {
+        if (!editorState.sessionId) return;
+
+        const content = editorState.simplemde.value();
+
+        // Save to localStorage
+        localStorage.setItem(LOCALSTORAGE_KEY, content);
+
+        // Validate on server
+        try {
+            const response = await axios.post(`${API_BASE}/save/`, {
+                session_id: editorState.sessionId,
+                content: content
+            });
+
+            const data = response.data;
+            editorState.lastSaved = new Date(data.saved_at);
+            editorState.modified = false;
+
+            updateStatus('saved', 'Auto-saved');
+            document.getElementById('last-save-time').textContent =
+                `Auto-saved at ${editorState.lastSaved.toLocaleTimeString()}`;
+
+            // Show validation warnings if any
+            if (data.validation_warnings && data.validation_warnings.length > 0) {
+                showValidationWarnings(data.validation_warnings);
+            } else {
+                hideValidationWarnings();
+            }
+
+        } catch (error) {
+            console.error('Auto-save failed:', error);
+            updateStatus('error', 'Auto-save failed');
+        }
+    }
+
+    function showCommitModal() {
+        const modal = new bootstrap.Modal(document.getElementById('commitModal'));
+        modal.show();
+
+        // Focus on commit message input
+        setTimeout(() => {
+            document.getElementById('commit-message').focus();
+        }, 500);
+    }
+
+    document.getElementById('btn-commit').addEventListener('click', showCommitModal);
+
+    document.getElementById('btn-confirm-commit').addEventListener('click', async function() {
+        const commitMessage = document.getElementById('commit-message').value.trim();
+
+        if (!commitMessage) {
+            alert('Please enter a commit message');
+            return;
+        }
+
+        updateStatus('loading', 'Committing...');
+
+        try {
+            const content = editorState.simplemde.value();
+            const response = await axios.post(`${API_BASE}/commit/`, {
+                session_id: editorState.sessionId,
+                content: content,
+                commit_message: commitMessage
+            });
+
+            const data = response.data;
+
+            // Clear localStorage
+            localStorage.removeItem(LOCALSTORAGE_KEY);
+
+            updateStatus('saved', 'Committed successfully');
+            editorState.modified = false;
+
+            // Close modal
+            bootstrap.Modal.getInstance(document.getElementById('commitModal')).hide();
+            document.getElementById('commit-message').value = '';
+
+            alert('Changes committed successfully!\nCommit: ' + data.commit_hash.substring(0, 8));
+
+        } catch (error) {
+            console.error('Commit failed:', error);
+            updateStatus('error', 'Commit failed');
+            alert('Error: ' + (error.response?.data?.error || 'Failed to commit changes'));
+        }
+    });
+
+    document.getElementById('btn-publish').addEventListener('click', function() {
+        const modal = new bootstrap.Modal(document.getElementById('publishModal'));
+        modal.show();
+    });
+
+    document.getElementById('btn-confirm-publish').addEventListener('click', async function() {
+        updateStatus('loading', 'Publishing...');
+
+        try {
+            const response = await axios.post(`${API_BASE}/publish/`, {
+                session_id: editorState.sessionId,
+                auto_push: true
+            });
+
+            const data = response.data;
+
+            if (data.success) {
+                // Clear localStorage
+                localStorage.removeItem(LOCALSTORAGE_KEY);
+
+                alert('Published successfully! Redirecting to view page...');
+                window.location.href = '/'; // or data.url when display service is ready
+
+            } else if (data.conflict) {
+                // Handle conflict
+                bootstrap.Modal.getInstance(document.getElementById('publishModal')).hide();
+                alert('Merge conflict detected!\n\nYour changes conflict with changes on the main branch. You will need to resolve the conflict before publishing.\n\nConflict resolution will be available in Phase 4.');
+                updateStatus('error', 'Conflict detected');
+            }
+
+        } catch (error) {
+            console.error('Publish failed:', error);
+            updateStatus('error', 'Publish failed');
+
+            if (error.response?.status === 409) {
+                alert('Merge conflict detected! Conflict resolution coming in Phase 4.');
+            } else {
+                alert('Error: ' + (error.response?.data?.error || 'Failed to publish'));
+            }
+        }
+    });
+
+    // Image upload button
+    document.getElementById('btn-upload-image').addEventListener('click', function() {
+        document.getElementById('image-file-input').click();
+    });
+
+    document.getElementById('image-file-input').addEventListener('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        await uploadImage(file);
+
+        // Clear the input
+        e.target.value = '';
+    });
+
+    async function uploadImage(file, altText = '') {
+        if (!editorState.sessionId) {
+            alert('Please start an edit session first');
+            return;
+        }
+
+        updateStatus('loading', 'Uploading image...');
+
+        const formData = new FormData();
+        formData.append('session_id', editorState.sessionId);
+        formData.append('image', file);
+        formData.append('alt_text', altText || file.name.split('.')[0]);
+
+        try {
+            const response = await axios.post(`${API_BASE}/upload-image/`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+
+            const data = response.data;
+
+            // Insert markdown at cursor
+            const cm = editorState.simplemde.codemirror;
+            const cursor = cm.getCursor();
+            cm.replaceRange(data.markdown + '\n', cursor);
+
+            updateStatus('saved', 'Image uploaded');
+            editorState.modified = true;
+
+            alert('Image uploaded successfully!\nSize: ' + (data.file_size_bytes / 1024).toFixed(1) + ' KB');
+
+        } catch (error) {
+            console.error('Image upload failed:', error);
+            updateStatus('error', 'Upload failed');
+            alert('Error: ' + (error.response?.data?.error || 'Failed to upload image'));
+        }
+    }
+
+    // Handle clipboard paste for images
+    async function handlePaste(cm, event) {
+        const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+
+        for (let item of items) {
+            if (item.type.indexOf('image') !== -1) {
+                event.preventDefault();
+
+                const blob = item.getAsFile();
+                const altText = prompt('Enter alt text for the image (optional):') || 'Pasted image';
+
+                await uploadImage(blob, altText);
+                break;
+            }
+        }
+    }
+
+    function checkLocalStorage() {
+        const saved = localStorage.getItem(LOCALSTORAGE_KEY);
+        if (saved && saved !== editorState.simplemde.value()) {
+            if (confirm('Found unsaved changes from a previous session. Restore them?')) {
+                editorState.simplemde.value(saved);
+                editorState.modified = true;
+                updateStatus('modified', 'Restored from localStorage');
+            } else {
+                localStorage.removeItem(LOCALSTORAGE_KEY);
+            }
+        }
+    }
+
+    function updateStatus(type, text) {
+        const indicator = document.querySelector('#status-indicator .status-indicator');
+        const statusText = document.getElementById('status-text');
+        const badge = document.getElementById('status-indicator');
+
+        // Remove all status classes
+        indicator.classList.remove('status-saved', 'status-modified', 'status-error');
+        badge.classList.remove('bg-success', 'bg-warning', 'bg-danger', 'bg-secondary');
+
+        // Add appropriate class
+        switch (type) {
+            case 'saved':
+                indicator.classList.add('status-saved');
+                badge.classList.add('bg-success');
+                break;
+            case 'modified':
+                indicator.classList.add('status-modified');
+                badge.classList.add('bg-warning');
+                break;
+            case 'error':
+                indicator.classList.add('status-error');
+                badge.classList.add('bg-danger');
+                break;
+            case 'loading':
+                badge.classList.add('bg-secondary');
+                break;
+        }
+
+        statusText.textContent = text;
+    }
+
+    function showValidationWarnings(warnings) {
+        const errorDiv = document.getElementById('validation-errors');
+        const errorList = document.getElementById('validation-list');
+
+        errorList.innerHTML = '';
+        warnings.forEach(warning => {
+            const li = document.createElement('li');
+            li.textContent = warning.message;
+            errorList.appendChild(li);
+        });
+
+        errorDiv.style.display = 'block';
+    }
+
+    function hideValidationWarnings() {
+        document.getElementById('validation-errors').style.display = 'none';
+    }
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function(e) {
+        if (editorState.modified) {
+            e.preventDefault();
+            e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+            return e.returnValue;
+        }
+    });
+</script>
+{% endblock %}

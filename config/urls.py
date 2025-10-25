@@ -21,4 +21,5 @@ from django.urls import path, include
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/git/", include('git_service.urls')),
+    path("editor/", include('editor.urls')),
 ]

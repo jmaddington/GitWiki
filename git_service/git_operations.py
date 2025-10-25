@@ -181,7 +181,8 @@ class GitRepository:
         content: str,
         commit_message: str,
         user_info: Dict[str, str],
-        user: Optional[User] = None
+        user: Optional[User] = None,
+        is_binary: bool = False
     ) -> Dict:
         """
         Commit changes to a draft branch.
@@ -189,16 +190,19 @@ class GitRepository:
         Args:
             branch_name: Name of the draft branch
             file_path: Relative path to file in repository
-            content: File content
+            content: File content (ignored if is_binary=True)
             commit_message: Commit message
             user_info: Dict with 'name' and 'email' keys
             user: Optional User instance for logging
+            is_binary: If True, skip writing content (file already exists on disk)
 
         Returns:
             Dict with commit_hash and success status
 
         Raises:
             GitRepositoryError: If commit fails
+
+        AIDEV-NOTE: binary-files; is_binary flag for images/binary files already on disk
         """
         start_time = time.time()
 
@@ -210,10 +214,15 @@ class GitRepository:
             # Checkout branch
             self.repo.heads[branch_name].checkout()
 
-            # Write file content
+            # Write file content (skip if binary file already on disk)
             full_path = self.repo_path / file_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content, encoding='utf-8')
+            if not is_binary:
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                full_path.write_text(content, encoding='utf-8')
+            else:
+                # Verify file exists for binary files
+                if not full_path.exists():
+                    raise GitRepositoryError(f"Binary file not found: {file_path}")
 
             # Stage file
             self.repo.index.add([file_path])
