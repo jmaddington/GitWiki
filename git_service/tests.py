@@ -188,3 +188,161 @@ class GitRepositoryTest(TestCase):
                 commit_message='Test',
                 user_info={'name': 'Test', 'email': 'test@example.com'}
             )
+
+    def test_get_conflicts_no_conflicts(self):
+        """Test get_conflicts returns empty when no conflicts exist."""
+        conflicts_data = self.repo.get_conflicts()
+
+        self.assertIsInstance(conflicts_data, dict)
+        self.assertIn('conflicts', conflicts_data)
+        self.assertEqual(len(conflicts_data['conflicts']), 0)
+        self.assertIn('timestamp', conflicts_data)
+
+    def test_get_conflicts_with_conflict(self):
+        """Test get_conflicts detects actual conflicts."""
+        # Create branch 1 and commit to a file
+        branch1 = self.repo.create_draft_branch(user_id=1, user=self.user)['branch_name']
+        self.repo.commit_changes(
+            branch_name=branch1,
+            file_path='conflict.md',
+            content='# Version 1\nContent from user 1',
+            commit_message='User 1 edit',
+            user_info={'name': 'User 1', 'email': 'user1@example.com'},
+            user=self.user
+        )
+
+        # Publish branch 1 to main
+        self.repo.publish_draft(branch_name=branch1, user=self.user, auto_push=False)
+
+        # Create branch 2 and commit to same file with different content
+        branch2 = self.repo.create_draft_branch(user_id=2, user=self.user)['branch_name']
+        self.repo.commit_changes(
+            branch_name=branch2,
+            file_path='conflict.md',
+            content='# Version 2\nContent from user 2',
+            commit_message='User 2 edit',
+            user_info={'name': 'User 2', 'email': 'user2@example.com'},
+            user=self.user
+        )
+
+        # Now branch2 should have a conflict with main
+        conflicts_data = self.repo.get_conflicts()
+
+        self.assertEqual(len(conflicts_data['conflicts']), 1)
+        conflict = conflicts_data['conflicts'][0]
+        self.assertEqual(conflict['branch_name'], branch2)
+        self.assertIn('conflict.md', conflict['file_paths'])
+        self.assertEqual(conflict['user_id'], 2)
+
+    def test_get_conflict_versions(self):
+        """Test extracting three-way diff versions."""
+        # Setup: Create conflicting changes
+        # Start with a base file
+        self.repo.commit_changes(
+            branch_name='main',
+            file_path='base.md',
+            content='# Original\nBase content',
+            commit_message='Initial version',
+            user_info={'name': 'Admin', 'email': 'admin@example.com'},
+            user=self.user
+        )
+
+        # Create branch and modify file
+        branch = self.repo.create_draft_branch(user_id=1, user=self.user)['branch_name']
+        self.repo.commit_changes(
+            branch_name=branch,
+            file_path='base.md',
+            content='# Modified\nMy changes',
+            commit_message='My edit',
+            user_info={'name': 'User 1', 'email': 'user1@example.com'},
+            user=self.user
+        )
+
+        # Also modify on main (simulating another user's publish)
+        self.repo.commit_changes(
+            branch_name='main',
+            file_path='base.md',
+            content='# Updated\nOther changes',
+            commit_message='Other edit',
+            user_info={'name': 'User 2', 'email': 'user2@example.com'},
+            user=self.user
+        )
+
+        # Get three-way diff
+        versions = self.repo.get_conflict_versions(branch, 'base.md')
+
+        self.assertIn('base', versions)
+        self.assertIn('theirs', versions)
+        self.assertIn('ours', versions)
+        self.assertEqual(versions['base'], '# Original\nBase content')
+        self.assertEqual(versions['theirs'], '# Updated\nOther changes')
+        self.assertEqual(versions['ours'], '# Modified\nMy changes')
+
+    def test_resolve_conflict_success(self):
+        """Test successful conflict resolution."""
+        # Setup conflict scenario
+        self.repo.commit_changes(
+            branch_name='main',
+            file_path='resolve.md',
+            content='# Original\nBase',
+            commit_message='Initial',
+            user_info={'name': 'Admin', 'email': 'admin@example.com'},
+            user=self.user
+        )
+
+        # Branch 1 modifies
+        branch1 = self.repo.create_draft_branch(user_id=1, user=self.user)['branch_name']
+        self.repo.commit_changes(
+            branch_name=branch1,
+            file_path='resolve.md',
+            content='# Modified\nBranch 1 content',
+            commit_message='Edit 1',
+            user_info={'name': 'User 1', 'email': 'user1@example.com'},
+            user=self.user
+        )
+
+        # Main is updated (creating conflict)
+        self.repo.commit_changes(
+            branch_name='main',
+            file_path='resolve.md',
+            content='# Updated\nMain content',
+            commit_message='Edit 2',
+            user_info={'name': 'User 2', 'email': 'user2@example.com'},
+            user=self.user
+        )
+
+        # Resolve conflict
+        result = self.repo.resolve_conflict(
+            branch_name=branch1,
+            file_path='resolve.md',
+            resolution_content='# Resolved\nMerged content',
+            user_info={'name': 'User 1', 'email': 'user1@example.com'},
+            is_binary=False
+        )
+
+        self.assertTrue(result['success'])
+        # Note: The merge might still fail even after resolution if conflicts persist
+        # Check that resolution was applied
+        self.assertIn('commit_hash', result)
+
+    def test_resolve_conflict_nonexistent_branch(self):
+        """Test that resolving conflict on non-existent branch raises error."""
+        with self.assertRaises(GitRepositoryError):
+            self.repo.resolve_conflict(
+                branch_name='nonexistent-branch',
+                file_path='test.md',
+                resolution_content='Content',
+                user_info={'name': 'Test', 'email': 'test@example.com'},
+                is_binary=False
+            )
+
+    def test_get_conflict_versions_nonexistent_file(self):
+        """Test get_conflict_versions with file that doesn't exist."""
+        branch = self.repo.create_draft_branch(user_id=1, user=self.user)['branch_name']
+
+        versions = self.repo.get_conflict_versions(branch, 'nonexistent.md')
+
+        # Should return empty strings for missing files
+        self.assertEqual(versions['base'], '')
+        self.assertEqual(versions['theirs'], '')
+        self.assertEqual(versions['ours'], '')
