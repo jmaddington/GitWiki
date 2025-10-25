@@ -16,6 +16,11 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Helper function for environment variables
+def env(key, default=None):
+    """Get environment variable with optional default."""
+    return os.environ.get(key, default)
+
 # AIDEV-NOTE: repo-path-config; Git repository location for wiki content
 WIKI_REPO_PATH = BASE_DIR / "repo"
 WIKI_STATIC_PATH = BASE_DIR / "static_generated"
@@ -58,6 +63,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # AIDEV-NOTE: permission-middleware; Enforces permission levels (open, read_only_public, private)
+    "config.middleware.PermissionMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -65,7 +72,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],  # Project-level templates
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -137,6 +144,12 @@ MEDIA_ROOT = BASE_DIR / "media"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Authentication settings
+# AIDEV-NOTE: auth-config; Login/logout redirects and URL configuration
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "wiki-home"
+LOGOUT_REDIRECT_URL = "wiki-home"
 
 # REST Framework configuration
 REST_FRAMEWORK = {

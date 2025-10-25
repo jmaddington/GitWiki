@@ -28,4 +28,5 @@ urlpatterns = [
     # Admin UI
     path('sync/', views.sync_management, name='sync-management'),
     path('settings/github/', views.github_settings, name='github-settings'),
+    path('settings/config/', views.configuration_page, name='configuration'),
 ]

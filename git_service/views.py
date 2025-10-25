@@ -305,3 +305,94 @@ def github_settings(request):
     }
 
     return render(request, 'git_service/github_settings.html', settings_data)
+
+
+def is_admin(user):
+    """Check if user is admin/staff."""
+    return user.is_staff or user.is_superuser
+
+
+@login_required
+@user_passes_test(is_admin)
+@require_http_methods(["GET", "POST"])
+def configuration_page(request):
+    """
+    Configuration management page for administrators.
+
+    AIDEV-NOTE: config-page; Manage wiki settings and permissions
+
+    Features:
+    - Permission level configuration (open, read_only_public, private)
+    - Wiki branding (title, description)
+    - File upload limits
+    - Branch cleanup thresholds
+    - Image format settings
+
+    Permission Modes:
+    - open: No auth required (fully public wiki)
+    - read_only_public: Public read, auth for edit
+    - private: Auth required for all access
+    """
+    if request.method == 'POST':
+        action = request.POST.get('action')
+
+        if action == 'save_config':
+            try:
+                # Permission level
+                permission_level = request.POST.get('permission_level', 'read_only_public')
+                if permission_level in ['open', 'read_only_public', 'private']:
+                    Configuration.set_config('permission_level', permission_level)
+                    logger.info(f'Permission level updated to: {permission_level} [CONFIG-01]')
+                else:
+                    messages.error(request, f"Invalid permission level: {permission_level}")
+                    logger.warning(f'Invalid permission level attempted: {permission_level} [CONFIG-02]')
+
+                # Wiki settings
+                wiki_title = request.POST.get('wiki_title', 'GitWiki').strip()
+                Configuration.set_config('wiki_title', wiki_title)
+
+                wiki_description = request.POST.get('wiki_description', '').strip()
+                Configuration.set_config('wiki_description', wiki_description)
+
+                # File upload limits
+                try:
+                    max_image_size = int(request.POST.get('max_image_size_mb', 10))
+                    if 1 <= max_image_size <= 100:
+                        Configuration.set_config('max_image_size_mb', max_image_size)
+                    else:
+                        messages.warning(request, "Image size must be between 1-100 MB. Using default: 10 MB")
+                except ValueError:
+                    messages.warning(request, "Invalid image size. Using default: 10 MB")
+
+                # Branch cleanup threshold
+                try:
+                    cleanup_days = int(request.POST.get('branch_cleanup_days', 7))
+                    if 1 <= cleanup_days <= 365:
+                        Configuration.set_config('branch_cleanup_days', cleanup_days)
+                    else:
+                        messages.warning(request, "Cleanup days must be between 1-365. Using default: 7 days")
+                except ValueError:
+                    messages.warning(request, "Invalid cleanup days. Using default: 7 days")
+
+                # Image formats
+                image_formats = request.POST.get('supported_image_formats', 'png,jpg,jpeg,webp').strip().lower()
+                Configuration.set_config('supported_image_formats', image_formats)
+
+                messages.success(request, "Configuration saved successfully!")
+                logger.info('Wiki configuration updated successfully [CONFIG-03]')
+
+            except Exception as e:
+                messages.error(request, f"Failed to save configuration: {str(e)}")
+                logger.error(f'Configuration save failed: {str(e)} [CONFIG-04]')
+
+    # Load current configuration
+    config_data = {
+        'permission_level': Configuration.get_config('permission_level', 'read_only_public'),
+        'wiki_title': Configuration.get_config('wiki_title', 'GitWiki'),
+        'wiki_description': Configuration.get_config('wiki_description', 'A distributed, Git-backed wiki system'),
+        'max_image_size_mb': Configuration.get_config('max_image_size_mb', 10),
+        'branch_cleanup_days': Configuration.get_config('branch_cleanup_days', 7),
+        'supported_image_formats': Configuration.get_config('supported_image_formats', 'png,jpg,jpeg,webp'),
+    }
+
+    return render(request, 'git_service/configuration.html', config_data)
