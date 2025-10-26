@@ -1,0 +1,48 @@
+[Unit]
+Description=GitWiki Celery Worker
+Documentation=https://docs.celeryproject.org/
+After=network.target redis-server.service postgresql.service
+Wants=redis-server.service
+
+[Service]
+Type=forking
+User=gitwiki
+Group=gitwiki
+WorkingDirectory=/home/gitwiki/app
+Environment="PATH=/home/gitwiki/app/venv/bin"
+EnvironmentFile=/home/gitwiki/app/.env
+
+# Celery worker command
+ExecStart=/home/gitwiki/app/venv/bin/celery -A config worker \
+    --loglevel=info \
+    --concurrency=4 \
+    --max-tasks-per-child=1000 \
+    --logfile=/home/gitwiki/logs/celery-worker.log \
+    --pidfile=/home/gitwiki/app/celery-worker.pid \
+    --detach
+
+# Graceful stop
+ExecStop=/bin/kill -s TERM $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Cleanup
+TimeoutStopSec=600
+KillMode=mixed
+PrivateTmp=true
+
+# Security hardening
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/gitwiki/app /home/gitwiki/logs /home/gitwiki/wiki_repo /home/gitwiki/wiki_static
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

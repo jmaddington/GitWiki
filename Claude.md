@@ -44,6 +44,8 @@ Configuration:
 - `production-config` (settings_production.py:17) - Production-specific security settings
 - `production-logging` (settings_production.py:62) - Centralized logging for production
 - `api-utils` (config/api_utils.py:6) - Standardized error handling for all API endpoints
+- `health-check` (config/health.py:6) - System health monitoring endpoint for production
+- `health-endpoints` (config/urls.py:34) - Monitoring endpoints for load balancers and orchestration
 
 Git Service:
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
@@ -164,6 +166,21 @@ Cache Utilities (Phase 7):
 - CACHE-INVALIDATE01, CACHE-INVALIDATE02, CACHE-INVALIDATE03, CACHE-INVALIDATE04, CACHE-INVALIDATE05, CACHE-INVALIDATE06
 - CACHE-CLEAR01, CACHE-CLEAR02
 - CACHE-STATS01, CACHE-STATS02
+
+Health Checks (Phase 7):
+- HEALTH-DB01: Database health check passed
+- HEALTH-DB02: Database health check failed
+- HEALTH-CACHE01: Redis cache health check passed
+- HEALTH-CACHE02: Redis cache health check failed (not returning correct values)
+- HEALTH-CACHE03: Redis cache health check failed (connection error)
+- HEALTH-GIT01: Git repository health check passed
+- HEALTH-GIT02: Git repository accessible but main branch not found
+- HEALTH-GIT03: Git repository health check failed
+- HEALTH-FAIL01: Overall health check failed
+- HEALTH-READY01: Readiness check passed
+- HEALTH-READY02: Readiness check failed
+- HEALTH-ALIVE01: Liveness check passed
+- HEALTH-ALIVE02: Liveness check failed
 
 Security (Phase 7):
 - SECURITY-01: DEBUG mode enabled (development only)

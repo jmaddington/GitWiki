@@ -1,0 +1,46 @@
+[Unit]
+Description=GitWiki Celery Beat Scheduler
+Documentation=https://docs.celeryproject.org/
+After=network.target redis-server.service celery-worker.service
+Wants=redis-server.service celery-worker.service
+
+[Service]
+Type=forking
+User=gitwiki
+Group=gitwiki
+WorkingDirectory=/home/gitwiki/app
+Environment="PATH=/home/gitwiki/app/venv/bin"
+EnvironmentFile=/home/gitwiki/app/.env
+
+# Celery beat command
+ExecStart=/home/gitwiki/app/venv/bin/celery -A config beat \
+    --loglevel=info \
+    --logfile=/home/gitwiki/logs/celery-beat.log \
+    --pidfile=/home/gitwiki/app/celery-beat.pid \
+    --schedule=/home/gitwiki/app/celerybeat-schedule.db \
+    --detach
+
+# Graceful stop
+ExecStop=/bin/kill -s TERM $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Cleanup
+TimeoutStopSec=60
+KillMode=mixed
+PrivateTmp=true
+
+# Security hardening
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/gitwiki/app /home/gitwiki/logs
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
