@@ -1,0 +1,89 @@
+#!/bin/bash
+#
+# GitWiki Pre-Commit Hook
+#
+# This hook validates:
+# 1. Branch naming conventions (draft branches must follow draft-{user_id}-{uuid} format)
+# 2. Prevents direct commits to main branch (use publish workflow instead)
+#
+# AIDEV-NOTE: pre-commit-hook; Validates branch names and prevents direct main commits
+
+set -e
+
+# Get current branch name
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+
+# If we can't determine branch (e.g., detached HEAD), allow commit
+if [ -z "$branch" ]; then
+    exit 0
+fi
+
+# Color codes for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# Block direct commits to main branch
+if [[ "$branch" == "main" ]]; then
+    echo ""
+    echo -e "${RED}❌ ERROR: Direct commits to 'main' branch are not allowed${NC}"
+    echo ""
+    echo "GitWiki uses a draft/publish workflow to maintain data integrity."
+    echo ""
+    echo "To make changes:"
+    echo "  1. Use the web editor at /editor/edit/?file=your-file.md"
+    echo "  2. Save your changes to a draft branch"
+    echo "  3. Publish through the web UI (handles conflicts automatically)"
+    echo ""
+    echo "Or manually:"
+    echo "  1. Create a draft branch: git checkout -b draft-{user_id}-{uuid}"
+    echo "  2. Make your commits"
+    echo "  3. Use the publish API endpoint or web UI"
+    echo ""
+    echo "This prevents conflicts and ensures proper history tracking."
+    echo ""
+    exit 1
+fi
+
+# Validate draft branch naming convention
+if [[ "$branch" == draft-* ]]; then
+    # Pattern: draft-{digits}-{alphanumeric 6-8 chars}
+    if [[ ! "$branch" =~ ^draft-[0-9]+-[a-z0-9]{6,8}$ ]]; then
+        echo ""
+        echo -e "${RED}❌ ERROR: Invalid draft branch name: ${branch}${NC}"
+        echo ""
+        echo "Draft branches must follow the format: draft-{user_id}-{uuid}"
+        echo ""
+        echo "Examples:"
+        echo "  ✅ draft-1-abc123"
+        echo "  ✅ draft-42-xyz789ab"
+        echo "  ❌ draft-mybranch"
+        echo "  ❌ draft-1"
+        echo ""
+        echo "The GitWiki editor creates draft branches automatically with this format."
+        echo "If creating manually, use: draft-{your_user_id}-$(uuidgen | cut -c1-8 | tr '[:upper:]' '[:lower:]')"
+        echo ""
+        exit 1
+    fi
+fi
+
+# Validate feature/fix/docs branches (claude/ prefix for AI-generated branches)
+if [[ "$branch" == claude/* ]]; then
+    # Claude branches should have format: claude/description-sessionid
+    # We're more lenient here since these are development branches
+    if [[ ${#branch} -lt 15 ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  WARNING: Claude branch name seems short: ${branch}${NC}"
+        echo ""
+        echo "Claude branches should include a session ID for tracking."
+        echo "Example: claude/feature-description-011CUVjZKFSnUJKozkBrYAbQ"
+        echo ""
+        echo "Continuing anyway..."
+        echo ""
+    fi
+fi
+
+# All checks passed
+echo -e "${GREEN}✅ Pre-commit checks passed${NC}"
+exit 0

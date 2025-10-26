@@ -152,6 +152,9 @@ python manage.py migrate
 # Initialize default configurations
 python manage.py init_config
 
+# Install git hooks (recommended)
+./scripts/install-hooks.sh
+
 # Create a superuser (optional, for admin access)
 python manage.py createsuperuser
 
@@ -160,6 +163,21 @@ python manage.py runserver
 ```
 
 The Git Service API will be available at `http://localhost:8000/api/git/`
+
+### Git Hooks
+
+GitWiki includes pre-commit hooks that validate branch naming and prevent direct commits to `main`:
+
+```bash
+# Install hooks
+./scripts/install-hooks.sh
+```
+
+The hook validates:
+- Draft branches must follow format: `draft-{user_id}-{uuid}`
+- No direct commits to `main` branch (use web editor instead)
+
+To bypass hooks (not recommended): `git commit --no-verify`
 
 ## Development
 
