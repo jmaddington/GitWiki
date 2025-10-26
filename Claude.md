@@ -76,6 +76,7 @@ Editor Service:
 - `image-path-structure` (editor/api.py:539) - Images stored in images/{branch_name}/
 - `editor-views` (editor/views.py:4) - UI views for markdown editing
 - `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
+- `editor-tests` (editor/tests.py:4) - Tests for editing workflow, sessions, API endpoints, and conflict resolution
 
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
@@ -84,6 +85,7 @@ Display Service:
 - `search-cache` (display/views.py:311) - Caches search results for 5 minutes to reduce file I/O
 - `display-urls` (display/urls.py:6) - Wiki page URLs and search routing
 - `error-handlers` (display/views.py:441) - Custom error pages (404, 500, 403)
+- `display-tests` (display/tests.py:4) - Tests for wiki rendering, search, caching, and navigation
 
 Cache Utilities (Phase 7):
 - `cache-invalidation` (config/cache_utils.py:6) - Clear caches after git operations to ensure fresh data
