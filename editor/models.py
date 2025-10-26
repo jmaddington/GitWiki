@@ -26,6 +26,8 @@ class EditSession(models.Model):
         indexes = [
             models.Index(fields=['user', 'is_active']),
             models.Index(fields=['-last_modified']),
+            # Optimized index for get_user_session_for_file() query
+            models.Index(fields=['user', 'file_path', 'is_active'], name='editsess_user_file_active_idx'),
         ]
 
     def __str__(self):
@@ -54,7 +56,7 @@ class EditSession(models.Model):
         Returns:
             QuerySet of active EditSession instances
         """
-        queryset = cls.objects.filter(is_active=True)
+        queryset = cls.objects.filter(is_active=True).select_related('user')
         if user:
             queryset = queryset.filter(user=user)
         return queryset

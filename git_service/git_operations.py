@@ -534,7 +534,7 @@ class GitRepository:
             logger.error(f'Failed to list branches: {str(e)} [GITOPS-LIST01]')
             return []
 
-    def get_file_history(self, file_path: str, branch: str = 'main', limit: int = 50) -> Dict:
+    def get_file_history(self, file_path: str, branch: str = 'main', limit: int = 50, cache_timeout: int = 300) -> Dict:
         """
         Get commit history for a specific file.
 
@@ -542,12 +542,24 @@ class GitRepository:
             file_path: Relative path to file
             branch: Branch name (default: 'main')
             limit: Maximum number of commits to return
+            cache_timeout: Cache timeout in seconds (default: 300 = 5 minutes)
 
         Returns:
             Dict with file_path and commits list
 
-        AIDEV-NOTE: file-history; Used for page history display
+        AIDEV-NOTE: file-history; Used for page history display, cached for performance
         """
+        from django.core.cache import cache
+
+        # Create cache key based on file, branch, and limit
+        cache_key = f'file_history_{branch}_{file_path}_{limit}'
+
+        # Check cache first
+        cached_history = cache.get(cache_key)
+        if cached_history:
+            logger.info(f'Returning cached file history for {file_path} [GITOPS-HISTORY-CACHE01]')
+            return cached_history
+
         try:
             # Save current branch
             current_branch = self.repo.active_branch.name
@@ -595,12 +607,18 @@ class GitRepository:
             if current_branch != branch:
                 self.repo.heads[current_branch].checkout()
 
-            return {
+            result = {
                 'file_path': file_path,
                 'branch': branch,
                 'commits': commits,
                 'total': len(commits)
             }
+
+            # Cache the result
+            cache.set(cache_key, result, cache_timeout)
+            logger.info(f'Cached file history for {file_path} [GITOPS-HISTORY-CACHE02]')
+
+            return result
 
         except GitRepositoryError:
             raise

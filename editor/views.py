@@ -106,7 +106,7 @@ def conflicts_list(request):
                 session = EditSession.objects.filter(
                     branch_name=branch_name,
                     is_active=True
-                ).first()
+                ).select_related('user').first()
 
                 if session:
                     conflict['session'] = session
