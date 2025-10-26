@@ -1,0 +1,92 @@
+# Coverage.py configuration for GitWiki
+# See: https://coverage.readthedocs.io/en/latest/config.html
+
+[run]
+# Source code to measure
+source = .
+
+# Files to omit from coverage
+omit =
+    */migrations/*
+    */tests.py
+    */tests/*
+    */venv/*
+    */virtualenv/*
+    */.venv/*
+    */env/*
+    manage.py
+    */config/wsgi.py
+    */config/asgi.py
+    */config/__init__.py
+    */__pycache__/*
+    */staticfiles/*
+    */static_generated/*
+    */media/*
+    */htmlcov/*
+    */node_modules/*
+    */.git/*
+
+# Measure branch coverage
+branch = True
+
+# Store data for parallel processing
+parallel = True
+
+[report]
+# Show lines that were not executed
+show_missing = True
+
+# Lines to exclude from coverage
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug-only code
+    def __repr__
+    def __str__
+
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    if settings.DEBUG:
+
+    # Don't complain about abstract methods
+    @abstract
+    @abstractmethod
+
+    # Don't complain about deprecated code
+    @deprecated
+    warnings.warn
+
+    # Don't complain about pass statements
+    pass
+
+# Ignore errors when source files are missing
+ignore_errors = False
+
+# Minimum coverage percentage
+fail_under = 75
+
+# Precision for coverage percentage
+precision = 2
+
+[html]
+# Directory for HTML report
+directory = htmlcov
+
+# Title for HTML report
+title = GitWiki Coverage Report
+
+[xml]
+# File name for XML output
+output = coverage.xml
+
+[json]
+# File name for JSON output
+output = coverage.json
+# Pretty print the JSON output
+pretty_print = True
