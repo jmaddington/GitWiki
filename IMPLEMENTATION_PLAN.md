@@ -5,7 +5,7 @@
 ## Overview
 This document provides a detailed, step-by-step implementation plan for the GitWiki project - a distributed, Git-backed markdown wiki system with web-based editing, clipboard image support, and conflict resolution.
 
-**Status:** Phase 1 Complete ✅ | Phase 2 Complete ✅ | Phase 3 Complete ✅ | Phase 4 Complete ✅ | Phase 5 Complete ✅ | Phase 6 Complete ✅ | Phase 7 Ready 🔨
+**Status:** Phases 1-6 Complete ✅ | Phase 7 Ready 🔨 | 80% Complete (8 of 10 weeks)
 
 ## Development Principles
 - Follow Django best practices
@@ -599,115 +599,140 @@ This document provides a detailed, step-by-step implementation plan for the GitW
 
 ---
 
-## Phase 7: Polish & Deployment (Weeks 9-10)
+## Phase 7: Polish & Deployment (Weeks 9-10) - Ready to Implement
 
-### 7.1 Pre-Commit Hooks
-- [ ] Create pre-commit hook script:
-  - [ ] Validate branch naming
-  - [ ] Block direct commits to main
-  - [ ] Validate commit message format
+**Priority:** CRITICAL - Final phase to production
+**See:** PHASE_7_PLAN.md for comprehensive implementation guide
 
-- [ ] Add hook installation to repository:
-  - [ ] Server-side installation
-  - [ ] Client-side installation script
-  - [ ] Documentation
+### Week 1: Security & Error Handling (Days 1-5)
 
-### 7.2 Error Handling Improvements
-- [ ] Audit all API endpoints for error handling
-- [ ] Add consistent error response format
-- [ ] Improve error messages
-- [ ] Add error logging with grepable codes
-- [ ] Create error page templates (404, 500, etc.)
+**Day 1-2: Security Hardening** - CRITICAL ⚠️
+- [ ] Move SECRET_KEY to environment variable
+- [ ] Install python-decouple for environment config
+- [ ] Create .env.example file
+- [ ] Create config/settings_production.py
+- [ ] Enable security headers (HSTS, CSP, etc.)
+- [ ] Update .gitignore for .env files
+- [ ] Test with DEBUG=False
+- [ ] Add grepable codes: SECURITY-01, SECURITY-02, SECURITY-03
 
-### 7.3 UI/UX Improvements
-- [ ] User testing session
-- [ ] Collect feedback
-- [ ] Implement improvements:
-  - [ ] Loading indicators
-  - [ ] Better error messages
-  - [ ] Keyboard shortcuts
-  - [ ] Tooltips and help text
-  - [ ] Confirmation dialogs
-  - [ ] Success notifications
+**Day 3: Custom Error Pages**
+- [ ] Create templates/errors/ directory
+- [ ] Create templates/errors/404.html (Page Not Found)
+- [ ] Create templates/errors/500.html (Server Error)
+- [ ] Create templates/errors/403.html (Permission Denied)
+- [ ] Add error handlers to config/urls.py
+- [ ] Create error view functions in display/views.py
+- [ ] Test all error scenarios
+- [ ] Add grepable codes: ERROR-404, ERROR-500, ERROR-403
 
-### 7.4 Performance Optimization
-- [ ] Add database indexes where needed
-- [ ] Optimize static file generation
-- [ ] Add caching for expensive operations
-- [ ] Optimize markdown rendering
-- [ ] Profile and optimize slow endpoints
+**Day 4: Error Handling Audit**
+- [ ] Review all API endpoints for consistent error handling
+- [ ] Add standard error response format
+- [ ] Add transaction rollback with @transaction.atomic
+- [ ] Improve user-facing error messages
+- [ ] Test edge cases (empty paths, invalid data, etc.)
+- [ ] Add detailed error logging
 
-### 7.5 Security Audit
-- [ ] Check for SQL injection vulnerabilities
-- [ ] Check for XSS vulnerabilities
-- [ ] Check for CSRF protection
-- [ ] Check for path traversal vulnerabilities
-- [ ] Review file upload security
-- [ ] Review authentication/authorization
-- [ ] Review SSH key handling
+**Day 5: Pre-commit Hooks**
+- [ ] Create .githooks/pre-commit script
+- [ ] Validate branch naming (draft-{user_id}-{uuid})
+- [ ] Block direct commits to main
+- [ ] Make executable (chmod +x)
+- [ ] Create scripts/install-hooks.sh
+- [ ] Add installation instructions to README.md
 
-### 7.6 Testing & Quality Assurance
-- [ ] Achieve 80%+ test coverage
-- [ ] Load testing (concurrent users)
+### Week 2: Performance, Testing & Documentation (Days 6-10)
+
+**Day 6-7: Performance Optimization**
+- [ ] Add database indexes to EditSession model
+- [ ] Add database indexes to GitOperation model
+- [ ] Implement caching for static file metadata
+- [ ] Optimize markdown rendering with caching
+- [ ] Profile slow endpoints
+- [ ] Add pagination where needed
+- [ ] Optimize conflict detection caching
+- [ ] Benchmark: page load < 200ms, search < 500ms
+
+**Day 8: Test Coverage Improvement**
+- [ ] Install coverage tool (pip install coverage)
+- [ ] Add comprehensive tests to display/tests.py
+- [ ] Add comprehensive tests to editor/tests.py
+- [ ] Create integration tests file
+- [ ] Run coverage report: coverage run manage.py test
+- [ ] Achieve 80%+ overall coverage
+- [ ] Load testing with concurrent users
 - [ ] Test with large repositories (100+ pages)
-- [ ] Test with large images (near max size)
-- [ ] Test multi-user concurrent editing
-- [ ] Fix all discovered bugs
 
-### 7.7 Documentation
-- [ ] **User Documentation**:
-  - [ ] Getting started guide
-  - [ ] Editing pages guide
-  - [ ] Image upload guide
-  - [ ] Conflict resolution guide
+**Day 9-10: Documentation**
+- [ ] Create docs/ directory structure
+- [ ] Create docs/user/USER_GUIDE.md
+  - [ ] Getting started
+  - [ ] Editing pages
+  - [ ] Working with images
+  - [ ] Conflict resolution
   - [ ] FAQ
+- [ ] Create docs/admin/ADMIN_GUIDE.md
+  - [ ] Installation
+  - [ ] Configuration
+  - [ ] GitHub setup
+  - [ ] Maintenance
+  - [ ] Troubleshooting
+- [ ] Create docs/developer/DEVELOPER_GUIDE.md
+  - [ ] Architecture
+  - [ ] API reference
+  - [ ] Development setup
+  - [ ] Testing
+  - [ ] Contributing
+- [ ] Create docs/admin/DEPLOYMENT_GUIDE.md
+  - [ ] Production settings
+  - [ ] Deployment options
+  - [ ] Web server configuration
+  - [ ] Monitoring & logging
+  - [ ] Backups
+- [ ] Update README.md with links to guides
+- [ ] Remove outdated documentation files
 
-- [ ] **Admin Documentation**:
-  - [ ] Installation guide
-  - [ ] Configuration guide
-  - [ ] GitHub setup guide
-  - [ ] Backup procedures
-  - [ ] Troubleshooting guide
+### Week 3 (Optional): Deployment Preparation (Days 11-14)
 
-- [ ] **Developer Documentation**:
-  - [ ] Architecture overview
-  - [ ] API documentation
-  - [ ] Database schema
-  - [ ] Testing guide
-  - [ ] Contributing guide
-
-### 7.8 Deployment Preparation
-- [ ] Create production settings.py
-- [ ] Create requirements.txt with pinned versions
+**Day 11: Production Configuration**
+- [ ] Create config/settings_production.py (complete)
+- [ ] Create requirements-production.txt (pinned versions)
+- [ ] Create .env.example (all variables documented)
 - [ ] Create Dockerfile (optional)
 - [ ] Create docker-compose.yml (optional)
-- [ ] Create deployment checklist
-- [ ] Create systemd service files
 - [ ] Create nginx configuration example
+- [ ] Create systemd service files
 
-### 7.9 Initial Deployment
-- [ ] Set up production server
-- [ ] Configure database
-- [ ] Run migrations
-- [ ] Configure web server (Gunicorn)
-- [ ] Configure reverse proxy (Nginx)
-- [ ] Set up SSL certificates
-- [ ] Configure Celery workers
-- [ ] Configure Redis
-- [ ] Test GitHub webhook
-- [ ] Import initial content
+**Day 12: Monitoring & Logging**
+- [ ] Create health check endpoint (config/views.py)
+- [ ] Configure production logging
+- [ ] Add Sentry integration (optional)
+- [ ] Create backup scripts (database, repo, config)
+- [ ] Document backup procedures
 
-### 7.10 Post-Deployment
-- [ ] Set up monitoring (health checks)
-- [ ] Set up log aggregation
-- [ ] Set up backups
-- [ ] Set up alerts
-- [ ] Create admin users
-- [ ] Test complete workflows in production
-- [ ] Monitor for errors
-- [ ] Create Phase 7 completion checklist
+**Day 13-14: Deployment & Testing**
+- [ ] Deploy to staging environment
+- [ ] Run all tests on staging
+- [ ] Security audit on staging
+- [ ] Performance testing on staging
+- [ ] Fix any issues found
+- [ ] Deploy to production
+- [ ] Monitor for 48 hours
+- [ ] Create Phase 7 completion document
 
-**Phase 7 Deliverable**: Production-ready wiki system with complete documentation.
+**Phase 7 Deliverable**: Production-ready wiki system with security hardening, comprehensive testing, and complete documentation.
+
+**Success Criteria:**
+- [ ] SECRET_KEY moved to environment
+- [ ] DEBUG disabled in production
+- [ ] Custom error pages (404, 500, 403)
+- [ ] 80%+ test coverage
+- [ ] Complete user/admin/developer guides
+- [ ] Production settings configured
+- [ ] Successfully deployed to staging
+- [ ] Security audit passed
+- [ ] Performance benchmarks met
 
 ---
 
