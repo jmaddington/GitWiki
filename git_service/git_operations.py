@@ -260,6 +260,10 @@ class GitRepository:
 
             logger.info(f'Committed changes to {branch_name}: {commit_hash[:8]} [GITOPS-COMMIT01]')
 
+            # Invalidate caches for this file
+            from config.cache_utils import invalidate_file_cache
+            invalidate_file_cache(branch_name, file_path)
+
             return {
                 'success': True,
                 'commit_hash': commit_hash
@@ -439,6 +443,12 @@ class GitRepository:
             try:
                 self.write_branch_to_disk('main', user)
                 logger.info(f'Generated static files after merge [GITOPS-PUBLISH04]')
+
+                # Invalidate caches for main branch
+                from config.cache_utils import invalidate_branch_cache, invalidate_search_cache
+                invalidate_branch_cache('main')
+                invalidate_search_cache('main')
+
             except Exception as e:
                 logger.warning(f'Static generation failed after merge: {str(e)} [GITOPS-PUBLISH05]')
 
@@ -669,17 +679,32 @@ class GitRepository:
 
     def _markdown_to_html(self, content: str) -> Tuple[str, str]:
         """
-        Convert markdown to HTML with table of contents.
+        Convert markdown to HTML with table of contents, with caching.
+
+        AIDEV-NOTE: markdown-conversion; Uses markdown library with extensions for tables, code, TOC
+        AIDEV-NOTE: markdown-cache; Caches rendered HTML for 30 minutes using content hash
 
         Args:
             content: Markdown content
 
         Returns:
             Tuple of (html_content, toc_html)
-
-        AIDEV-NOTE: markdown-conversion; Uses markdown library with extensions for tables, code, TOC
         """
+        from django.core.cache import cache
+        import hashlib
+
         try:
+            # Create cache key from content hash
+            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+            cache_key = f'markdown:{content_hash}'
+
+            # Check cache first
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                logger.debug(f'Markdown cache hit for hash {content_hash[:8]} [DISPLAY-CACHE07]')
+                return cached_result
+
+            # Render markdown
             md = markdown.Markdown(extensions=[
                 TocExtension(title='Table of Contents', toc_depth='2-4'),
                 CodeHiliteExtension(css_class='highlight', linenums=False),
@@ -692,7 +717,13 @@ class GitRepository:
             html_content = md.convert(content)
             toc_html = md.toc if hasattr(md, 'toc') else ''
 
-            return html_content, toc_html
+            result = (html_content, toc_html)
+
+            # Cache for 30 minutes (1800 seconds)
+            cache.set(cache_key, result, 1800)
+            logger.debug(f'Markdown cached for hash {content_hash[:8]} [DISPLAY-CACHE08]')
+
+            return result
 
         except Exception as e:
             logger.error(f'Failed to convert markdown: {str(e)} [GITOPS-MARKDOWN01]')
@@ -1708,6 +1739,14 @@ class GitRepository:
                 f'{total_files} files, {execution_time}ms [GITOPS-REBUILD08]'
             )
 
+            # Clear all caches after full rebuild
+            from config.cache_utils import clear_all_caches
+            cache_result = clear_all_caches()
+            if cache_result['success']:
+                logger.info('Caches cleared after full static rebuild [GITOPS-REBUILD10]')
+            else:
+                logger.warning(f'Cache clear failed: {cache_result["message"]} [GITOPS-REBUILD11]')
+
             GitOperation.log_operation(
                 operation_type='static_rebuild',
                 request_params={},
@@ -1721,7 +1760,8 @@ class GitRepository:
                 'success': True,
                 'branches_regenerated': branches_regenerated,
                 'total_files': total_files,
-                'execution_time_ms': execution_time
+                'execution_time_ms': execution_time,
+                'caches_cleared': cache_result['success']
             }
 
         except Exception as e:

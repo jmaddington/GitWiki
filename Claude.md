@@ -52,6 +52,7 @@ Git Service:
 - `binary-files` (git_operations.py:205) - is_binary flag for images/binary files already on disk
 - `file-history` (git_operations.py:543) - Used for page history display
 - `markdown-conversion` (git_operations.py:674) - Uses markdown library with extensions for tables, code, TOC
+- `markdown-cache` (git_operations.py:675) - Caches rendered HTML for 30 minutes using content hash
 - `static-generation` (git_operations.py:709) - Atomic operation using temp directory
 - `conflict-detection` (git_operations.py:840) - Caches results for 2min to avoid expensive operations
 - `three-way-diff` (git_operations.py:931) - Extracts base, theirs, ours for Monaco Editor
@@ -78,8 +79,14 @@ Editor Service:
 
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
+- `metadata-cache` (display/views.py:42) - Caches metadata for 1 hour to reduce disk I/O
+- `directory-cache` (display/views.py:120) - Caches directory listings for 10 minutes
+- `search-cache` (display/views.py:311) - Caches search results for 5 minutes to reduce file I/O
 - `display-urls` (display/urls.py:6) - Wiki page URLs and search routing
 - `error-handlers` (display/views.py:441) - Custom error pages (404, 500, 403)
+
+Cache Utilities (Phase 7):
+- `cache-invalidation` (config/cache_utils.py:6) - Clear caches after git operations to ensure fresh data
 
 URL Configuration:
 - `error-handlers` (config/urls.py:35) - Error handler configuration for production
@@ -115,7 +122,7 @@ Git Service:
 - GITOPS-PULL01, GITOPS-PULL02, GITOPS-PULL03, GITOPS-PULL04, GITOPS-PULL05, GITOPS-PULL06, GITOPS-PULL07, GITOPS-PULL08, GITOPS-PULL09, GITOPS-PULL10
 - GITOPS-PUSH01, GITOPS-PUSH02, GITOPS-PUSH03, GITOPS-PUSH04, GITOPS-PUSH05, GITOPS-PUSH06, GITOPS-PUSH07, GITOPS-PUSH08, GITOPS-PUSH09, GITOPS-PUSH10, GITOPS-PUSH11
 - GITOPS-CLEANUP01, GITOPS-CLEANUP02, GITOPS-CLEANUP03, GITOPS-CLEANUP04, GITOPS-CLEANUP05, GITOPS-CLEANUP06, GITOPS-CLEANUP07, GITOPS-CLEANUP08
-- GITOPS-REBUILD01, GITOPS-REBUILD02, GITOPS-REBUILD03, GITOPS-REBUILD04, GITOPS-REBUILD05, GITOPS-REBUILD06, GITOPS-REBUILD07, GITOPS-REBUILD08, GITOPS-REBUILD09
+- GITOPS-REBUILD01, GITOPS-REBUILD02, GITOPS-REBUILD03, GITOPS-REBUILD04, GITOPS-REBUILD05, GITOPS-REBUILD06, GITOPS-REBUILD07, GITOPS-REBUILD08, GITOPS-REBUILD09, GITOPS-REBUILD10, GITOPS-REBUILD11
 - API-BRANCH01, API-BRANCH02, API-BRANCH-VAL01
 - API-COMMIT01, API-COMMIT02, API-COMMIT-VAL01
 - API-PUBLISH01, API-PUBLISH02, API-PUBLISH03, API-PUBLISH-VAL01, API-PUBLISH-CONFLICT
@@ -149,6 +156,12 @@ Display Service:
 - DISPLAY-PAGE01, DISPLAY-PAGE02, DISPLAY-PAGE03, DISPLAY-PAGE04
 - DISPLAY-SEARCH01, DISPLAY-SEARCH02, DISPLAY-SEARCH03
 - DISPLAY-HISTORY01, DISPLAY-HISTORY02
+- DISPLAY-CACHE01, DISPLAY-CACHE02, DISPLAY-CACHE03, DISPLAY-CACHE04, DISPLAY-CACHE05, DISPLAY-CACHE06, DISPLAY-CACHE07, DISPLAY-CACHE08
+
+Cache Utilities (Phase 7):
+- CACHE-INVALIDATE01, CACHE-INVALIDATE02, CACHE-INVALIDATE03, CACHE-INVALIDATE04, CACHE-INVALIDATE05, CACHE-INVALIDATE06
+- CACHE-CLEAR01, CACHE-CLEAR02
+- CACHE-STATS01, CACHE-STATS02
 
 Security (Phase 7):
 - SECURITY-01: DEBUG mode enabled (development only)
