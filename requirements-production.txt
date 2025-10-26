@@ -1,0 +1,83 @@
+# GitWiki Production Requirements
+# Pinned versions for production stability
+# Generated: 2025-10-26
+
+# Core Django
+Django==4.2.7
+django-environ==0.11.2
+python-decouple==3.8
+
+# Database
+psycopg2-binary==2.9.9
+
+# Git operations
+GitPython==3.1.40
+
+# Task queue
+celery==5.3.4
+redis==5.0.1
+django-celery-beat==2.5.0
+django-redis==5.4.0
+
+# API and forms
+djangorestframework==3.14.0
+django-cors-headers==4.3.0
+
+# Markdown processing
+markdown==3.5.1
+pymdown-extensions==10.5
+Pygments==2.17.2
+
+# Image processing
+Pillow==10.1.0
+
+# Web server (production)
+gunicorn==21.2.0
+
+# Production monitoring and error tracking
+sentry-sdk==1.40.0
+
+# Security
+cryptography==41.0.7
+
+# Performance
+django-debug-toolbar==4.2.0  # Only enable in staging
+
+# Required dependencies
+# These are pulled in automatically but pinned for stability
+amqp==5.2.0
+asgiref==3.7.2
+async-timeout==4.0.3
+attrs==23.1.0
+billiard==4.2.0
+certifi==2023.11.17
+charset-normalizer==3.3.2
+click==8.1.7
+click-didyoumean==0.3.0
+click-plugins==1.1.1
+click-repl==0.3.0
+gitdb==4.0.11
+idna==3.6
+kombu==5.3.4
+prompt-toolkit==3.0.43
+python-crontab==3.0.0
+python-dateutil==2.8.2
+pytz==2023.3.post1
+requests==2.31.0
+six==1.16.0
+smmap==5.0.1
+sqlparse==0.4.4
+tzdata==2023.4
+urllib3==2.1.0
+vine==5.1.0
+wcwidth==0.2.12
+
+# Testing and development (optional in production)
+# Uncomment if needed for production testing
+# coverage==7.3.2
+# pytest==7.4.3
+# pytest-django==4.7.0
+# pytest-cov==4.1.0
+# factory-boy==3.3.0
+# black==23.11.0
+# flake8==6.1.0

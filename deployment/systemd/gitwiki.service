@@ -1,0 +1,55 @@
+[Unit]
+Description=GitWiki Gunicorn Application Server
+Documentation=https://github.com/jmaddington/GitWiki
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=notify
+User=gitwiki
+Group=gitwiki
+WorkingDirectory=/home/gitwiki/app
+Environment="PATH=/home/gitwiki/app/venv/bin"
+EnvironmentFile=/home/gitwiki/app/.env
+
+# Gunicorn command with production settings
+ExecStart=/home/gitwiki/app/venv/bin/gunicorn \
+    --config /home/gitwiki/app/gunicorn_config.py \
+    --workers 4 \
+    --worker-class sync \
+    --worker-connections 1000 \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --timeout 30 \
+    --bind 127.0.0.1:8000 \
+    --access-logfile /home/gitwiki/logs/gunicorn-access.log \
+    --error-logfile /home/gitwiki/logs/gunicorn-error.log \
+    --log-level info \
+    config.wsgi:application
+
+# Graceful reload
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Cleanup
+KillMode=mixed
+KillSignal=SIGQUIT
+TimeoutStopSec=5
+PrivateTmp=true
+
+# Security hardening
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/gitwiki/app /home/gitwiki/logs /home/gitwiki/wiki_repo /home/gitwiki/wiki_static
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
