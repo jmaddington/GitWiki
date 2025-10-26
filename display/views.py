@@ -17,6 +17,7 @@ from django.http import Http404, JsonResponse
 from django.conf import settings
 from django.views.decorators.http import require_http_methods
 from django.core.paginator import Paginator
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,9 @@ def _get_static_path(branch: str = 'main') -> Path:
 
 def _load_metadata(file_path: str, branch: str = 'main') -> Optional[Dict]:
     """
-    Load metadata for a file.
+    Load metadata for a file with caching.
+
+    AIDEV-NOTE: metadata-cache; Caches metadata for 1 hour to reduce disk I/O
 
     Args:
         file_path: Relative path to markdown file
@@ -45,13 +48,27 @@ def _load_metadata(file_path: str, branch: str = 'main') -> Optional[Dict]:
     Returns:
         Metadata dict or None
     """
+    # Check cache first
+    cache_key = f'metadata:{branch}:{file_path}'
+    cached_metadata = cache.get(cache_key)
+
+    if cached_metadata is not None:
+        logger.debug(f'Metadata cache hit for {file_path} [DISPLAY-CACHE01]')
+        return cached_metadata
+
     try:
         static_path = _get_static_path(branch)
         metadata_file = static_path / f"{file_path}.metadata"
 
         if metadata_file.exists():
-            return json.loads(metadata_file.read_text(encoding='utf-8'))
+            metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
+            # Cache for 1 hour (3600 seconds)
+            cache.set(cache_key, metadata, 3600)
+            logger.debug(f'Metadata cached for {file_path} [DISPLAY-CACHE02]')
+            return metadata
 
+        # Cache None result for 5 minutes to avoid repeated disk checks
+        cache.set(cache_key, None, 300)
         return None
     except Exception as e:
         logger.warning(f'Failed to load metadata for {file_path}: {str(e)} [DISPLAY-META01]')
@@ -98,7 +115,9 @@ def _get_breadcrumbs(file_path: str) -> List[Dict[str, str]]:
 
 def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
     """
-    List files and subdirectories in a directory.
+    List files and subdirectories in a directory with caching.
+
+    AIDEV-NOTE: directory-cache; Caches directory listings for 10 minutes
 
     Args:
         directory: Directory path relative to static root
@@ -107,11 +126,21 @@ def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
     Returns:
         List of file/directory dicts
     """
+    # Check cache first
+    cache_key = f'directory:{branch}:{directory or "root"}'
+    cached_listing = cache.get(cache_key)
+
+    if cached_listing is not None:
+        logger.debug(f'Directory cache hit for {directory or "root"} [DISPLAY-CACHE03]')
+        return cached_listing
+
     try:
         static_path = _get_static_path(branch)
         dir_path = static_path / directory if directory else static_path
 
         if not dir_path.exists() or not dir_path.is_dir():
+            # Cache empty result for 5 minutes
+            cache.set(cache_key, [], 300)
             return []
 
         items = []
@@ -140,6 +169,10 @@ def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
                         'url': f'/wiki/{clean_path}',
                         'path': str(rel_path)
                     })
+
+        # Cache for 10 minutes (600 seconds)
+        cache.set(cache_key, items, 600)
+        logger.debug(f'Directory cached for {directory or "root"} [DISPLAY-CACHE04]')
 
         return items
 
@@ -273,7 +306,9 @@ def wiki_page(request, file_path):
 @require_http_methods(["GET"])
 def wiki_search(request):
     """
-    Search wiki pages.
+    Search wiki pages with caching.
+
+    AIDEV-NOTE: search-cache; Caches search results for 5 minutes to reduce file I/O
 
     Query params:
         q: Search query
@@ -292,44 +327,56 @@ def wiki_search(request):
             }
             return render(request, 'display/search.html', context)
 
-        # Search in markdown files
-        static_path = _get_static_path(branch)
-        results = []
+        # Check cache first
+        cache_key = f'search:{branch}:{query.lower()}'
+        cached_results = cache.get(cache_key)
 
-        if static_path.exists():
-            for md_file in static_path.rglob('*.md'):
-                if md_file.name.endswith('.metadata'):
-                    continue
+        if cached_results is not None:
+            logger.info(f'Search cache hit for "{query}" [DISPLAY-CACHE05]')
+            results = cached_results
+        else:
+            # Search in markdown files
+            static_path = _get_static_path(branch)
+            results = []
 
-                try:
-                    content = md_file.read_text(encoding='utf-8').lower()
-                    query_lower = query.lower()
+            if static_path.exists():
+                for md_file in static_path.rglob('*.md'):
+                    if md_file.name.endswith('.metadata'):
+                        continue
 
-                    if query_lower in content:
-                        # Calculate relevance score
-                        title_match = query_lower in md_file.stem.lower()
-                        count = content.count(query_lower)
+                    try:
+                        content = md_file.read_text(encoding='utf-8').lower()
+                        query_lower = query.lower()
 
-                        # Get snippet
-                        snippet = _get_search_snippet(md_file.read_text(encoding='utf-8'), query, max_length=200)
+                        if query_lower in content:
+                            # Calculate relevance score
+                            title_match = query_lower in md_file.stem.lower()
+                            count = content.count(query_lower)
 
-                        rel_path = md_file.relative_to(static_path)
-                        clean_path = str(rel_path).replace('.md', '')
+                            # Get snippet
+                            snippet = _get_search_snippet(md_file.read_text(encoding='utf-8'), query, max_length=200)
 
-                        results.append({
-                            'title': md_file.stem.replace('-', ' ').replace('_', ' ').title(),
-                            'path': clean_path,
-                            'url': f'/wiki/{clean_path}',
-                            'snippet': snippet,
-                            'matches': count,
-                            'score': (count * 10) + (100 if title_match else 0)
-                        })
+                            rel_path = md_file.relative_to(static_path)
+                            clean_path = str(rel_path).replace('.md', '')
 
-                except Exception as e:
-                    logger.warning(f'Error searching file {md_file}: {str(e)} [DISPLAY-SEARCH01]')
+                            results.append({
+                                'title': md_file.stem.replace('-', ' ').replace('_', ' ').title(),
+                                'path': clean_path,
+                                'url': f'/wiki/{clean_path}',
+                                'snippet': snippet,
+                                'matches': count,
+                                'score': (count * 10) + (100 if title_match else 0)
+                            })
 
-        # Sort by score
-        results.sort(key=lambda x: x['score'], reverse=True)
+                    except Exception as e:
+                        logger.warning(f'Error searching file {md_file}: {str(e)} [DISPLAY-SEARCH01]')
+
+            # Sort by score
+            results.sort(key=lambda x: x['score'], reverse=True)
+
+            # Cache search results for 5 minutes (300 seconds)
+            cache.set(cache_key, results, 300)
+            logger.info(f'Search results cached for "{query}" ({len(results)} results) [DISPLAY-CACHE06]')
 
         # Paginate
         paginator = Paginator(results, 20)
