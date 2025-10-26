@@ -1,7 +1,7 @@
 """
 API views for Git Service.
 
-AIDEV-NOTE: api-endpoints; REST API for git operations
+AIDEV-NOTE: api-endpoints; REST API for git operations with standardized error handling
 """
 
 from rest_framework.views import APIView
@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from django.contrib.auth.models import User
+from django.db import transaction
 import logging
 
 from .git_operations import get_repository, GitRepositoryError
@@ -17,6 +18,12 @@ from .serializers import (
     CommitChangesSerializer,
     PublishDraftSerializer,
     GetFileSerializer
+)
+from config.api_utils import (
+    error_response,
+    success_response,
+    validation_error_response,
+    handle_exception
 )
 
 logger = logging.getLogger(__name__)
@@ -33,22 +40,19 @@ class CreateBranchAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Create a new draft branch with atomic transaction support."""
+        # Validate input
         serializer = CreateBranchSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "API-BRANCH-VAL01")
 
         user_id = serializer.validated_data['user_id']
 
         try:
             # Get user instance for logging
-            user = None
-            if request.user.is_authenticated:
-                user = request.user
+            user = request.user if request.user.is_authenticated else None
 
             # Create branch
             repo = get_repository()
@@ -56,14 +60,19 @@ class CreateBranchAPIView(APIView):
 
             logger.info(f'Branch created via API: {result["branch_name"]} [API-BRANCH01]')
 
-            return Response(result, status=status.HTTP_200_OK)
-
-        except GitRepositoryError as e:
-            logger.error(f'Failed to create branch via API: {str(e)} [API-BRANCH02]')
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return success_response(
+                data=result,
+                message=f"Draft branch '{result['branch_name']}' created successfully"
             )
+
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "create branch", "API-BRANCH02",
+                "Failed to create draft branch. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class CommitChangesAPIView(APIView):
@@ -84,22 +93,19 @@ class CommitChangesAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Commit changes to a draft branch with atomic transaction support."""
+        # Validate input
         serializer = CommitChangesSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "API-COMMIT-VAL01")
 
         data = serializer.validated_data
 
         try:
             # Get user instance for logging
-            user = None
-            if request.user.is_authenticated:
-                user = request.user
+            user = request.user if request.user.is_authenticated else None
 
             # Commit changes
             repo = get_repository()
@@ -114,14 +120,19 @@ class CommitChangesAPIView(APIView):
 
             logger.info(f'Changes committed via API: {result["commit_hash"][:8]} [API-COMMIT01]')
 
-            return Response(result, status=status.HTTP_200_OK)
-
-        except GitRepositoryError as e:
-            logger.error(f'Failed to commit changes via API: {str(e)} [API-COMMIT02]')
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return success_response(
+                data=result,
+                message=f"Changes committed to {data['file_path']}"
             )
+
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "commit changes", "API-COMMIT02",
+                f"Failed to commit changes to {data.get('file_path', 'file')}. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class PublishDraftAPIView(APIView):
@@ -136,22 +147,19 @@ class PublishDraftAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Publish a draft branch to main with atomic transaction support."""
+        # Validate input
         serializer = PublishDraftSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "API-PUBLISH-VAL01")
 
         data = serializer.validated_data
 
         try:
             # Get user instance for logging
-            user = None
-            if request.user.is_authenticated:
-                user = request.user
+            user = request.user if request.user.is_authenticated else None
 
             # Publish draft
             repo = get_repository()
@@ -164,18 +172,30 @@ class PublishDraftAPIView(APIView):
             # If there were conflicts, return 409
             if not result['success'] and 'conflicts' in result:
                 logger.warning(f'Publish failed due to conflicts: {data["branch_name"]} [API-PUBLISH01]')
+                # Add success=False to maintain standard format
+                result['success'] = False
+                result['error'] = {
+                    'message': 'Cannot publish due to merge conflicts',
+                    'code': 'API-PUBLISH-CONFLICT',
+                    'conflicts': result['conflicts']
+                }
                 return Response(result, status=status.HTTP_409_CONFLICT)
 
             logger.info(f'Draft published via API: {data["branch_name"]} [API-PUBLISH02]')
 
-            return Response(result, status=status.HTTP_200_OK)
-
-        except GitRepositoryError as e:
-            logger.error(f'Failed to publish draft via API: {str(e)} [API-PUBLISH03]')
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return success_response(
+                data=result,
+                message=f"Draft branch '{data['branch_name']}' published successfully"
             )
+
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "publish draft", "API-PUBLISH03",
+                f"Failed to publish draft branch '{data.get('branch_name', 'unknown')}'. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class GetFileAPIView(APIView):
@@ -187,13 +207,11 @@ class GetFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get(self, request):
+        """Get file content from a specific branch."""
+        # Validate input
         serializer = GetFileSerializer(data=request.query_params)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "API-FILE-VAL01")
 
         data = serializer.validated_data
 
@@ -204,21 +222,30 @@ class GetFileAPIView(APIView):
                 branch=data['branch']
             )
 
-            return Response(
-                {
+            return success_response(
+                data={
                     'file_path': data['file_path'],
                     'branch': data['branch'],
                     'content': content
                 },
-                status=status.HTTP_200_OK
+                message=f"Retrieved file '{data['file_path']}' from branch '{data['branch']}'"
             )
 
-        except GitRepositoryError as e:
-            logger.error(f'Failed to get file via API: {str(e)} [API-FILE01]')
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_404_NOT_FOUND
+        except GitRepositoryError:
+            # File not found is expected - return 404
+            logger.warning(f'File not found via API: {data["file_path"]} on {data["branch"]} [API-FILE01]')
+            return error_response(
+                message=f"File '{data['file_path']}' not found in branch '{data['branch']}'",
+                error_code="API-FILE-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'file_path': data['file_path'], 'branch': data['branch']}
             )
+        except Exception as e:
+            response, _ = handle_exception(
+                e, "get file", "API-FILE02",
+                f"Failed to retrieve file '{data.get('file_path', 'unknown')}'"
+            )
+            return response
 
 
 class ListBranchesAPIView(APIView):
@@ -230,20 +257,25 @@ class ListBranchesAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get(self, request):
+        """List branches with optional pattern filter."""
         pattern = request.query_params.get('pattern', None)
 
         try:
             repo = get_repository()
             branches = repo.list_branches(pattern=pattern)
 
-            return Response(
-                {'branches': branches},
-                status=status.HTTP_200_OK
+            message = f"Found {len(branches)} branches"
+            if pattern:
+                message += f" matching pattern '{pattern}'"
+
+            return success_response(
+                data={'branches': branches, 'count': len(branches)},
+                message=message
             )
 
         except Exception as e:
-            logger.error(f'Failed to list branches via API: {str(e)} [API-BRANCHES01]')
-            return Response(
-                {'error': 'Failed to list branches'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, _ = handle_exception(
+                e, "list branches", "API-BRANCHES01",
+                "Failed to list branches. Please try again."
             )
+            return response
