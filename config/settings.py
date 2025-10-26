@@ -12,30 +12,39 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 import os
+import logging
+from decouple import config, Csv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Helper function for environment variables
-def env(key, default=None):
-    """Get environment variable with optional default."""
-    return os.environ.get(key, default)
+logger = logging.getLogger(__name__)
 
 # AIDEV-NOTE: repo-path-config; Git repository location for wiki content
-WIKI_REPO_PATH = BASE_DIR / "repo"
-WIKI_STATIC_PATH = BASE_DIR / "static_generated"
+WIKI_REPO_PATH = BASE_DIR / config('WIKI_REPO_PATH', default='repo')
+WIKI_STATIC_PATH = BASE_DIR / config('WIKI_STATIC_PATH', default='static_generated')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-3@gchapvnnjn*^+s)v9^#x5l%4^i8_^tau&45*ian1jz914cn!"
+# AIDEV-NOTE: security-config; Load SECRET_KEY from environment
+SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-key-CHANGE-IN-PRODUCTION')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = []
+# Log security configuration on startup
+if DEBUG:
+    logger.warning('DEBUG mode is enabled - DO NOT use in production [SECURITY-01]')
+else:
+    logger.info('Production mode enabled with DEBUG=False [SECURITY-02]')
+
+if SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
+    logger.warning('Using default SECRET_KEY - MUST change for production [SECURITY-03]')
+
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 
 # Application definition
@@ -72,7 +81,10 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],  # Project-level templates
+        "DIRS": [
+            BASE_DIR / "templates",  # Project-level templates
+            BASE_DIR / "templates" / "errors",  # Error page templates
+        ],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
