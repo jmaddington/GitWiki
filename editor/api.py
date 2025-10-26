@@ -1,7 +1,7 @@
 """
 API views for Editor Service.
 
-AIDEV-NOTE: editor-api; REST API for markdown editing workflow
+AIDEV-NOTE: editor-api; REST API for markdown editing workflow with standardized error handling
 """
 
 from rest_framework.views import APIView
@@ -10,6 +10,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.db import transaction
+from django.core.exceptions import ObjectDoesNotExist
 from pathlib import Path
 import logging
 import markdown
@@ -28,6 +30,12 @@ from .serializers import (
 )
 from git_service.git_operations import get_repository, GitRepositoryError
 from git_service.models import Configuration
+from config.api_utils import (
+    error_response,
+    success_response,
+    validation_error_response,
+    handle_exception
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +52,13 @@ class StartEditAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Start an edit session with atomic transaction support."""
+        # Validate input
         serializer = StartEditSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "EDITOR-START-VAL01")
 
         data = serializer.validated_data
         user_id = data['user_id']
@@ -82,15 +89,18 @@ class StartEditAPIView(APIView):
                         # File doesn't exist anywhere, start with empty content
                         content = f"# {Path(file_path).stem.replace('-', ' ').title()}\n\n"
 
-                return Response({
-                    'session_id': existing_session.id,
-                    'branch_name': existing_session.branch_name,
-                    'file_path': file_path,
-                    'content': content,
-                    'created_at': existing_session.created_at,
-                    'last_modified': existing_session.last_modified,
-                    'resumed': True
-                }, status=status.HTTP_200_OK)
+                return success_response(
+                    data={
+                        'session_id': existing_session.id,
+                        'branch_name': existing_session.branch_name,
+                        'file_path': file_path,
+                        'content': content,
+                        'created_at': existing_session.created_at,
+                        'last_modified': existing_session.last_modified,
+                        'resumed': True
+                    },
+                    message=f"Resumed edit session for '{file_path}'"
+                )
 
             # Create new draft branch
             repo = get_repository()
@@ -112,22 +122,28 @@ class StartEditAPIView(APIView):
 
             logger.info(f'Started new edit session: {session.id} for {file_path} [EDITOR-START02]')
 
-            return Response({
-                'session_id': session.id,
-                'branch_name': branch_result['branch_name'],
-                'file_path': file_path,
-                'content': content,
-                'created_at': session.created_at,
-                'last_modified': session.last_modified,
-                'resumed': False
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={
+                    'session_id': session.id,
+                    'branch_name': branch_result['branch_name'],
+                    'file_path': file_path,
+                    'content': content,
+                    'created_at': session.created_at,
+                    'last_modified': session.last_modified,
+                    'resumed': False
+                },
+                message=f"Started new edit session for '{file_path}'",
+                status_code=status.HTTP_201_CREATED
+            )
 
         except Exception as e:
-            logger.error(f'Failed to start edit session: {str(e)} [EDITOR-START03]')
-            return Response(
-                {'error': f'Failed to start edit session: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, should_rollback = handle_exception(
+                e, "start edit session", "EDITOR-START03",
+                f"Failed to start edit session for '{file_path}'. Please try again."
             )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class SaveDraftAPIView(APIView):
@@ -142,14 +158,13 @@ class SaveDraftAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Save draft with validation and atomic transaction support."""
+        # Validate input
         serializer = SaveDraftSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "EDITOR-SAVE-VAL01")
 
         data = serializer.validated_data
         session_id = data['session_id']
@@ -167,26 +182,32 @@ class SaveDraftAPIView(APIView):
 
             logger.info(f'Draft saved for session {session_id} [EDITOR-SAVE01]')
 
-            return Response({
-                'success': True,
-                'saved_at': session.last_modified,
-                'markdown_valid': validation['valid'],
-                'validation_errors': validation.get('errors', []),
-                'validation_warnings': validation.get('warnings', [])
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={
+                    'saved_at': session.last_modified,
+                    'markdown_valid': validation['valid'],
+                    'validation_errors': validation.get('errors', []),
+                    'validation_warnings': validation.get('warnings', [])
+                },
+                message="Draft saved successfully"
+            )
 
         except EditSession.DoesNotExist:
             logger.error(f'Edit session not found: {session_id} [EDITOR-SAVE02]')
-            return Response(
-                {'error': 'Edit session not found or inactive'},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-SAVE-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
             )
         except Exception as e:
-            logger.error(f'Failed to save draft: {str(e)} [EDITOR-SAVE03]')
-            return Response(
-                {'error': f'Failed to save draft: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, should_rollback = handle_exception(
+                e, "save draft", "EDITOR-SAVE03",
+                "Failed to save draft. Please try again."
             )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
     def _validate_markdown(self, content):
         """Validate markdown syntax."""
@@ -225,14 +246,13 @@ class CommitDraftAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Commit draft to Git branch with atomic transaction support."""
+        # Validate input
         serializer = CommitDraftSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "EDITOR-COMMIT-VAL01")
 
         data = serializer.validated_data
         session_id = data['session_id']
@@ -248,12 +268,11 @@ class CommitDraftAPIView(APIView):
             validation = save_view._validate_markdown(content)
 
             if not validation['valid']:
-                return Response(
-                    {
-                        'error': 'Invalid markdown',
-                        'validation_errors': validation.get('errors', [])
-                    },
-                    status=status.HTTP_422_UNPROCESSABLE_ENTITY
+                return error_response(
+                    message="Invalid markdown syntax. Please fix errors before committing.",
+                    error_code="EDITOR-COMMIT-INVALID",
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    details={'validation_errors': validation.get('errors', [])}
                 )
 
             # Commit to Git
@@ -275,30 +294,30 @@ class CommitDraftAPIView(APIView):
 
             logger.info(f'Committed draft for session {session_id}: {commit_result["commit_hash"][:8]} [EDITOR-COMMIT01]')
 
-            return Response({
-                'success': True,
-                'commit_hash': commit_result['commit_hash'],
-                'branch_name': session.branch_name
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={
+                    'commit_hash': commit_result['commit_hash'],
+                    'branch_name': session.branch_name
+                },
+                message=f"Changes committed to {session.file_path}"
+            )
 
         except EditSession.DoesNotExist:
             logger.error(f'Edit session not found: {session_id} [EDITOR-COMMIT02]')
-            return Response(
-                {'error': 'Edit session not found or inactive'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except GitRepositoryError as e:
-            logger.error(f'Failed to commit draft: {str(e)} [EDITOR-COMMIT03]')
-            return Response(
-                {'error': f'Failed to commit: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-COMMIT-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
             )
         except Exception as e:
-            logger.error(f'Unexpected error committing draft: {str(e)} [EDITOR-COMMIT04]')
-            return Response(
-                {'error': f'Failed to commit: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, should_rollback = handle_exception(
+                e, "commit draft", "EDITOR-COMMIT03",
+                "Failed to commit changes. Please try again."
             )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class PublishEditAPIView(APIView):
@@ -313,14 +332,13 @@ class PublishEditAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Publish edit to main branch with atomic transaction support."""
+        # Validate input
         serializer = PublishEditSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "EDITOR-PUBLISH-VAL01")
 
         data = serializer.validated_data
         session_id = data['session_id']
@@ -343,11 +361,14 @@ class PublishEditAPIView(APIView):
                 logger.warning(f'Publish failed due to conflicts: {session.branch_name} [EDITOR-PUBLISH01]')
                 return Response({
                     'success': False,
-                    'conflict': True,
-                    'conflict_details': {
-                        'file_path': session.file_path,
-                        'conflicts': publish_result['conflicts'],
-                        'resolution_url': f'/editor/conflicts/{session.branch_name}'
+                    'error': {
+                        'message': 'Cannot publish due to merge conflicts',
+                        'code': 'EDITOR-PUBLISH-CONFLICT',
+                        'conflict_details': {
+                            'file_path': session.file_path,
+                            'conflicts': publish_result['conflicts'],
+                            'resolution_url': f'/editor/conflicts/{session.branch_name}'
+                        }
                     }
                 }, status=status.HTTP_409_CONFLICT)
 
@@ -356,30 +377,30 @@ class PublishEditAPIView(APIView):
 
             logger.info(f'Published edit session {session_id} to main [EDITOR-PUBLISH02]')
 
-            return Response({
-                'success': True,
-                'published': True,
-                'url': f'/wiki/{session.file_path.replace(".md", ".html")}'
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={
+                    'published': True,
+                    'url': f'/wiki/{session.file_path.replace(".md", ".html")}'
+                },
+                message=f"Successfully published '{session.file_path}' to main branch"
+            )
 
         except EditSession.DoesNotExist:
             logger.error(f'Edit session not found: {session_id} [EDITOR-PUBLISH03]')
-            return Response(
-                {'error': 'Edit session not found or inactive'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except GitRepositoryError as e:
-            logger.error(f'Failed to publish edit: {str(e)} [EDITOR-PUBLISH04]')
-            return Response(
-                {'error': f'Failed to publish: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-PUBLISH-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
             )
         except Exception as e:
-            logger.error(f'Unexpected error publishing edit: {str(e)} [EDITOR-PUBLISH05]')
-            return Response(
-                {'error': f'Failed to publish: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, should_rollback = handle_exception(
+                e, "publish edit", "EDITOR-PUBLISH04",
+                "Failed to publish changes. Please try again."
             )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class ValidateMarkdownAPIView(APIView):
@@ -394,13 +415,11 @@ class ValidateMarkdownAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def post(self, request):
+        """Validate markdown syntax without modifying any data."""
+        # Validate input
         serializer = ValidateMarkdownSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "EDITOR-VALIDATE-VAL01")
 
         content = serializer.validated_data['content']
 
@@ -408,7 +427,10 @@ class ValidateMarkdownAPIView(APIView):
         save_view = SaveDraftAPIView()
         validation = save_view._validate_markdown(content)
 
-        return Response(validation, status=status.HTTP_200_OK)
+        return success_response(
+            data=validation,
+            message="Markdown validation completed"
+        )
 
 
 class UploadImageAPIView(APIView):
@@ -423,14 +445,13 @@ class UploadImageAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Upload image with atomic transaction support."""
+        # Validate input
         serializer = UploadImageSerializer(data=request.data)
-
         if not serializer.is_valid():
-            return Response(
-                {'errors': serializer.errors},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return validation_error_response(serializer.errors, "EDITOR-UPLOAD-VAL01")
 
         data = serializer.validated_data
         session_id = data['session_id']
@@ -486,26 +507,33 @@ class UploadImageAPIView(APIView):
 
             logger.info(f'Uploaded image for session {session_id}: {filename} [EDITOR-UPLOAD01]')
 
-            return Response({
-                'success': True,
-                'filename': filename,
-                'path': image_path,
-                'markdown': markdown_syntax,
-                'file_size_bytes': image_file.size
-            }, status=status.HTTP_200_OK)
+            return success_response(
+                data={
+                    'filename': filename,
+                    'path': image_path,
+                    'markdown': markdown_syntax,
+                    'file_size_bytes': image_file.size
+                },
+                message=f"Image '{filename}' uploaded successfully",
+                status_code=status.HTTP_201_CREATED
+            )
 
         except EditSession.DoesNotExist:
             logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD02]')
-            return Response(
-                {'error': 'Edit session not found or inactive'},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-UPLOAD-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
             )
         except Exception as e:
-            logger.error(f'Failed to upload image: {str(e)} [EDITOR-UPLOAD03]')
-            return Response(
-                {'error': f'Failed to upload image: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, should_rollback = handle_exception(
+                e, "upload image", "EDITOR-UPLOAD03",
+                "Failed to upload image. Please try again."
             )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
 
 
 class ConflictsListAPIView(APIView):
@@ -517,6 +545,7 @@ class ConflictsListAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get(self, request):
+        """Get list of conflicts without modifying data."""
         try:
             repo = get_repository()
             conflicts_data = repo.get_conflicts()
@@ -548,14 +577,17 @@ class ConflictsListAPIView(APIView):
 
             logger.info(f"Returned {len(conflicts_data['conflicts'])} conflicts [EDITOR-CONFLICT01]")
 
-            return Response(conflicts_data, status=status.HTTP_200_OK)
+            return success_response(
+                data=conflicts_data,
+                message=f"Found {len(conflicts_data['conflicts'])} unresolved conflicts"
+            )
 
         except Exception as e:
-            logger.error(f'Failed to get conflicts list: {str(e)} [EDITOR-CONFLICT02]')
-            return Response(
-                {'error': f'Failed to get conflicts: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, _ = handle_exception(
+                e, "get conflicts list", "EDITOR-CONFLICT02",
+                "Failed to retrieve conflicts list. Please try again."
             )
+            return response
 
 
 class ConflictVersionsAPIView(APIView):
@@ -567,6 +599,7 @@ class ConflictVersionsAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get(self, request, session_id, file_path):
+        """Get conflict versions for resolution."""
         try:
             # Get edit session
             session = EditSession.objects.get(id=session_id, is_active=True)
@@ -576,20 +609,25 @@ class ConflictVersionsAPIView(APIView):
 
             logger.info(f'Retrieved conflict versions for session {session_id}: {file_path} [EDITOR-CONFLICT03]')
 
-            return Response(versions, status=status.HTTP_200_OK)
+            return success_response(
+                data=versions,
+                message=f"Retrieved conflict versions for '{file_path}'"
+            )
 
         except EditSession.DoesNotExist:
             logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT04]')
-            return Response(
-                {'error': 'Edit session not found or inactive'},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-CONFLICT-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
             )
         except Exception as e:
-            logger.error(f'Failed to get conflict versions: {str(e)} [EDITOR-CONFLICT05]')
-            return Response(
-                {'error': f'Failed to get conflict versions: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, _ = handle_exception(
+                e, "get conflict versions", "EDITOR-CONFLICT05",
+                "Failed to retrieve conflict versions. Please try again."
             )
+            return response
 
 
 class ResolveConflictAPIView(APIView):
@@ -606,19 +644,28 @@ class ResolveConflictAPIView(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
 
+    @transaction.atomic
     def post(self, request):
+        """Resolve conflict with atomic transaction support."""
+        # Validate required fields
+        session_id = request.data.get('session_id')
+        file_path = request.data.get('file_path')
+        resolution_content = request.data.get('resolution_content')
+        conflict_type = request.data.get('conflict_type', 'text')
+
+        if not all([session_id, file_path, resolution_content]):
+            return error_response(
+                message="Missing required fields",
+                error_code="EDITOR-RESOLVE-VAL01",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                details={
+                    'required_fields': ['session_id', 'file_path', 'resolution_content'],
+                    'missing': [f for f in ['session_id', 'file_path', 'resolution_content']
+                               if not request.data.get(f)]
+                }
+            )
+
         try:
-            session_id = request.data.get('session_id')
-            file_path = request.data.get('file_path')
-            resolution_content = request.data.get('resolution_content')
-            conflict_type = request.data.get('conflict_type', 'text')
-
-            if not all([session_id, file_path, resolution_content]):
-                return Response(
-                    {'error': 'Missing required fields: session_id, file_path, resolution_content'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             # Get edit session
             session = EditSession.objects.get(id=session_id, is_active=True)
 
@@ -660,33 +707,43 @@ class ResolveConflictAPIView(APIView):
 
                 logger.info(f'Conflict resolved and merged for session {session_id}: {file_path} [EDITOR-CONFLICT06]')
 
-                return Response({
-                    'success': True,
-                    'merged': True,
-                    'message': 'Conflict resolved and changes published',
-                    'commit_hash': result['commit_hash']
-                }, status=status.HTTP_200_OK)
+                return success_response(
+                    data={
+                        'merged': True,
+                        'commit_hash': result['commit_hash']
+                    },
+                    message=f"Conflict resolved and changes published for '{file_path}'"
+                )
             else:
                 # Conflict resolution applied but still has conflicts
                 logger.warning(f'Conflict resolution incomplete for session {session_id}: {file_path} [EDITOR-CONFLICT07]')
 
                 return Response({
                     'success': True,
-                    'merged': False,
-                    'message': 'Conflict resolution applied but merge still has conflicts',
-                    'commit_hash': result['commit_hash'],
-                    'still_conflicts': result['still_conflicts']
+                    'data': {
+                        'merged': False,
+                        'commit_hash': result['commit_hash'],
+                        'still_conflicts': result['still_conflicts']
+                    },
+                    'error': {
+                        'message': 'Conflict resolution applied but merge still has conflicts',
+                        'code': 'EDITOR-CONFLICT-PARTIAL'
+                    }
                 }, status=status.HTTP_409_CONFLICT)
 
         except EditSession.DoesNotExist:
             logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT08]')
-            return Response(
-                {'error': 'Edit session not found or inactive'},
-                status=status.HTTP_404_NOT_FOUND
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-CONFLICT-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
             )
         except Exception as e:
-            logger.error(f'Failed to resolve conflict: {str(e)} [EDITOR-CONFLICT09]')
-            return Response(
-                {'error': f'Failed to resolve conflict: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            response, should_rollback = handle_exception(
+                e, "resolve conflict", "EDITOR-CONFLICT09",
+                "Failed to resolve conflict. Please try again."
             )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
