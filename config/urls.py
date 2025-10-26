@@ -30,3 +30,9 @@ urlpatterns = [
     path("accounts/login/", auth_views.LoginView.as_view(template_name='auth/login.html'), name='login'),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name='logout'),
 ]
+
+# Error Handlers
+# AIDEV-NOTE: error-handlers; Custom error pages for production
+handler404 = 'display.views.custom_404'
+handler500 = 'display.views.custom_500'
+handler403 = 'display.views.custom_403'

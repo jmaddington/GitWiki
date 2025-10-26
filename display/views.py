@@ -435,3 +435,37 @@ def page_history(request, file_path):
     except Exception as e:
         logger.error(f'Error loading history for {file_path}: {str(e)} [DISPLAY-HISTORY02]')
         raise Http404(f"Error loading history: {str(e)}")
+
+
+# Error Handlers
+# AIDEV-NOTE: error-handlers; Custom error pages for better user experience
+
+def custom_404(request, exception=None):
+    """
+    Custom 404 error handler.
+
+    Shows a user-friendly "Page Not Found" page instead of Django's default.
+    """
+    logger.warning(f'404 error for path: {request.path} [ERROR-404]')
+    return render(request, 'errors/404.html', status=404)
+
+
+def custom_500(request):
+    """
+    Custom 500 error handler.
+
+    Shows a user-friendly "Server Error" page instead of Django's default.
+    Note: This template must not use any dynamic content that could fail.
+    """
+    logger.error(f'500 error for path: {request.path} [ERROR-500]')
+    return render(request, 'errors/500.html', status=500)
+
+
+def custom_403(request, exception=None):
+    """
+    Custom 403 error handler.
+
+    Shows a user-friendly "Permission Denied" page instead of Django's default.
+    """
+    logger.warning(f'403 error for path: {request.path} - user: {request.user} [ERROR-403]')
+    return render(request, 'errors/403.html', status=403)

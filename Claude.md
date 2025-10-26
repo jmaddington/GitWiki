@@ -38,8 +38,13 @@ The git_service/git_operations.py module uses a singleton pattern via get_reposi
 
 Key AIDEV-NOTEs in codebase:
 
+Configuration:
+- `security-config` (settings.py:32) - Load SECRET_KEY and config from environment
+- `repo-path-config` (settings.py:24) - Git repository location configuration
+- `production-config` (settings_production.py:17) - Production-specific security settings
+- `production-logging` (settings_production.py:62) - Centralized logging for production
+
 Git Service:
-- `repo-path-config` (settings.py:20) - Git repository location configuration
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
 - `repo-singleton` (git_operations.py:43) - Single instance manages all git operations
 - `dry-run-merge` (git_operations.py:271) - Uses --no-commit to test merge without modifying repo
@@ -73,6 +78,10 @@ Editor Service:
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
 - `display-urls` (display/urls.py:6) - Wiki page URLs and search routing
+- `error-handlers` (display/views.py:441) - Custom error pages (404, 500, 403)
+
+URL Configuration:
+- `error-handlers` (config/urls.py:35) - Error handler configuration for production
 
 ### Testing
 
@@ -136,6 +145,29 @@ Display Service:
 - DISPLAY-PAGE01, DISPLAY-PAGE02, DISPLAY-PAGE03, DISPLAY-PAGE04
 - DISPLAY-SEARCH01, DISPLAY-SEARCH02, DISPLAY-SEARCH03
 - DISPLAY-HISTORY01, DISPLAY-HISTORY02
+
+Security (Phase 7):
+- SECURITY-01: DEBUG mode enabled (development only)
+- SECURITY-02: Production mode enabled with DEBUG=False
+- SECURITY-03: Using default SECRET_KEY (must change for production)
+- SECURITY-04: Production settings loaded
+- SECURITY-05: HTTPS redirect enabled
+- SECURITY-06: HSTS enabled
+- SECURITY-07: Using PostgreSQL database
+- SECURITY-08: Using SQLite (PostgreSQL recommended for production)
+- SECURITY-09: Created logs directory
+- SECURITY-10: Email configuration loaded
+- SECURITY-11: Email not configured (console backend)
+- SECURITY-12: Sentry error tracking enabled
+- SECURITY-13: Redis cache configured
+- SECURITY-14: ALLOWED_HOSTS not configured
+- SECURITY-15: ALLOWED_HOSTS configured successfully
+- SECURITY-16: Production settings loaded successfully
+
+Error Handlers (Phase 7):
+- ERROR-404: Page not found (404 error)
+- ERROR-500: Server error (500 error)
+- ERROR-403: Permission denied (403 error)
 
 Settings:
 - SETTINGS-LOG01
