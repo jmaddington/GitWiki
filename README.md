@@ -71,8 +71,9 @@ A distributed, Git-backed markdown wiki system with web-based editing, clipboard
 - ✅ 9 new grepable codes (PERM-*, CONFIG-*)
 - ✅ 3 new AIDEV-NOTE anchors
 
-**Currently**: Phase 7 - Polish & Deployment
-**Next**: Security audit, performance optimization, production deployment
+**Currently**: Phase 7 - Polish & Deployment (Ready to Implement)
+**Next**: Security hardening, error pages, performance optimization, comprehensive testing
+**See**: PHASE_7_PLAN.md for detailed implementation roadmap
 
 ## What is GitWiki?
 
@@ -125,14 +126,15 @@ Each app maintains 95%+ separation of concerns and could be extracted into separ
 
 ## Documentation
 
-**Current Phase:**
-- [Project Plan](distributed-wiki-project-plan.md) - ⭐ START HERE: See "NEXT: PHASE 6" section for detailed roadmap
+**⭐ Start Here for Phase 7:**
+- [Phase 7 Plan](PHASE_7_PLAN.md) - Comprehensive implementation guide for final phase
+- [Implementation Plan](IMPLEMENTATION_PLAN.md) - Detailed task breakdown with checklists
 
-**Overall Project:**
-- [Project Plan](distributed-wiki-project-plan.md) - Complete project specification with current status
-- [Implementation Plan](IMPLEMENTATION_PLAN.md) - Detailed step-by-step implementation roadmap
-- [Project Review](PROJECT_REVIEW_2025-10-25.md) - Comprehensive architectural review
-- [Development Guidelines](Claude.md) - Commenting and commit guidelines with AIDEV-NOTE index (182+ codes)
+**Project Documentation:**
+- [Project Plan](distributed-wiki-project-plan.md) - Complete specification with Phase 7 roadmap
+- [Development Guidelines](Claude.md) - AIDEV-NOTE index and grepable codes (187 codes)
+- [Phase 6 Summary](PHASE_6_COMPLETE.md) - Configuration & permissions implementation summary
+- [README](README.md) - This file: setup guide and quick start
 
 ## Quick Start
 
@@ -276,6 +278,12 @@ For questions or support, please refer to the project documentation or create an
 
 **Code Quality**: ✅ Phases 1-6 complete - Excellent architecture (~8,850 lines of application code)
 
-**Project Status**: 80% complete (8 of 10 weeks)
+**Project Status**: 80% complete (8 of 10 weeks) - Production-ready with Phase 7
 
-*Last Updated: October 25, 2025 (Phase 6 Complete, Phase 7 Ready)*
+**Key Stats:**
+- Total Code: ~9,878 lines (6,395 Python + 3,483 templates)
+- AIDEV-NOTE Anchors: 40
+- Grepable Logging Codes: 187
+- Test Coverage: Good in core modules (git_service, config)
+
+*Last Updated: October 26, 2025 (Phase 6 Complete, Phase 7 Planned)*
