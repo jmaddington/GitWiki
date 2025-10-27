@@ -22,11 +22,7 @@ from config.health import health_check, readiness_check, liveness_check
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/git/", include('git_service.urls')),
-    path("editor/", include('editor.urls')),
-    path("wiki/", include('display.urls')),  # Wiki pages
-    path("", include('display.urls')),  # Home page at root
-    # Authentication URLs
+    # Authentication URLs (must come before catch-all patterns)
     # AIDEV-NOTE: auth-urls; Django built-in authentication views
     path("accounts/login/", auth_views.LoginView.as_view(template_name='auth/login.html'), name='login'),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name='logout'),
@@ -35,6 +31,11 @@ urlpatterns = [
     path("health/", health_check, name='health-check'),
     path("ready/", readiness_check, name='readiness-check'),
     path("alive/", liveness_check, name='liveness-check'),
+    # API and app URLs
+    path("api/git/", include('git_service.urls')),
+    path("editor/", include('editor.urls')),
+    path("wiki/", include('display.urls')),  # Wiki pages
+    path("", include('display.urls')),  # Home page at root (catch-all, must be last)
 ]
 
 # Error Handlers
