@@ -217,3 +217,6 @@ __marimo__/
 /media/
 /staticfiles/
 /logs/*.log
+
+# Wiki content repository (bind mounted in devcontainer)
+wiki-repo/
