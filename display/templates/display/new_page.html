@@ -1,0 +1,150 @@
+{% extends "display/base.html" %}
+
+{% block title %}Create New Page - GitWiki{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <!-- Breadcrumbs -->
+        {% if breadcrumbs %}
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                {% for crumb in breadcrumbs %}
+                <li class="breadcrumb-item {% if forloop.last %}active{% endif %}">
+                    {% if forloop.last %}
+                        {{ crumb.name }}
+                    {% else %}
+                        <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ol>
+        </nav>
+        {% endif %}
+
+        <!-- Page Header -->
+        <div class="wiki-content">
+            <h1><i class="fas fa-file-plus"></i> Create New Page</h1>
+            <p class="text-muted">
+                Enter the path for your new wiki page. You can organize pages into directories by using forward slashes (e.g., <code>docs/getting-started.md</code>).
+            </p>
+
+            {% if error %}
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle"></i> {{ error }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endif %}
+
+            <!-- New Page Form -->
+            <form method="post" id="newPageForm">
+                {% csrf_token %}
+
+                <div class="mb-4">
+                    <label for="file_path" class="form-label">
+                        <strong><i class="fas fa-folder-tree"></i> Page Path</strong>
+                    </label>
+                    <div class="input-group">
+                        {% if suggested_path %}
+                        <span class="input-group-text">{{ suggested_path }}/</span>
+                        {% endif %}
+                        <input
+                            type="text"
+                            class="form-control form-control-lg"
+                            id="file_path"
+                            name="file_path"
+                            placeholder="{% if suggested_path %}my-page.md{% else %}docs/my-page.md{% endif %}"
+                            value="{{ file_path|default:'' }}"
+                            required
+                            autofocus>
+                    </div>
+                    <div class="form-text">
+                        <i class="fas fa-info-circle"></i>
+                        Examples: <code>getting-started.md</code>, <code>guides/installation.md</code>, <code>team/john-doe.md</code>
+                        <br>
+                        <small class="text-muted">The <code>.md</code> extension will be added automatically if omitted.</small>
+                    </div>
+                </div>
+
+                <!-- Preview -->
+                <div class="mb-4">
+                    <label class="form-label">
+                        <strong><i class="fas fa-eye"></i> Preview</strong>
+                    </label>
+                    <div class="alert alert-info">
+                        <i class="fas fa-link"></i> Page will be created at:
+                        <code id="pathPreview">
+                            {% if suggested_path %}{{ suggested_path }}/{% endif %}<span id="dynamicPath">my-page.md</span>
+                        </code>
+                    </div>
+                </div>
+
+                <!-- Helpful Tips -->
+                <div class="alert alert-light border">
+                    <h5><i class="fas fa-lightbulb text-warning"></i> Tips for Creating Pages</h5>
+                    <ul class="mb-0">
+                        <li>Use hyphens (-) instead of spaces in file names (e.g., <code>my-page.md</code>)</li>
+                        <li>Group related pages in directories (e.g., <code>tutorials/</code>, <code>guides/</code>)</li>
+                        <li>Keep names lowercase for consistency</li>
+                        <li>Use descriptive names that indicate the page content</li>
+                    </ul>
+                </div>
+
+                <!-- Actions -->
+                <div class="d-flex gap-2 justify-content-end">
+                    <a href="{% if suggested_path %}/wiki/{{ suggested_path }}/{% else %}/{% endif %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-times"></i> Cancel
+                    </a>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-arrow-right"></i> Create & Edit
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Update preview as user types
+    document.addEventListener('DOMContentLoaded', function() {
+        const filePathInput = document.getElementById('file_path');
+        const dynamicPath = document.getElementById('dynamicPath');
+        const form = document.getElementById('newPageForm');
+
+        filePathInput.addEventListener('input', function() {
+            let value = this.value.trim();
+            if (value === '') {
+                dynamicPath.textContent = 'my-page.md';
+            } else {
+                // Add .md extension if not present
+                if (!value.endsWith('.md')) {
+                    dynamicPath.textContent = value + '.md';
+                } else {
+                    dynamicPath.textContent = value;
+                }
+            }
+        });
+
+        // Validate form before submission
+        form.addEventListener('submit', function(e) {
+            const value = filePathInput.value.trim();
+
+            // Check for invalid characters
+            if (value.includes('..') || value.startsWith('/')) {
+                e.preventDefault();
+                alert('Invalid path: cannot use ".." or start with "/"');
+                return false;
+            }
+
+            // Check for empty value
+            if (value === '') {
+                e.preventDefault();
+                alert('Please enter a page path');
+                return false;
+            }
+        });
+    });
+</script>
+{% endblock %}

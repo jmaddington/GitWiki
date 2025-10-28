@@ -13,6 +13,9 @@ urlpatterns = [
     # Home page
     path('', views.wiki_home, name='home'),
 
+    # New page creation
+    path('new/', views.new_page, name='new-page'),
+
     # Search
     path('search/', views.wiki_search, name='search'),
 

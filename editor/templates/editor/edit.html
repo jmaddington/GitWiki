@@ -3,6 +3,7 @@
 {% block title %}Edit: {{ file_path }} - GitWiki{% endblock %}
 
 {% block content %}
+{% csrf_token %}
 <div class="container-fluid">
     <div class="row">
         <!-- Main Editor Area -->
@@ -141,6 +142,25 @@
     const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
     const LOCALSTORAGE_KEY = 'gitwiki_draft_{{ file_path }}';
     const API_BASE = '/editor/api';
+
+    // CSRF Token Support
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // Configure axios to send CSRF token with every request
+    axios.defaults.headers.common['X-CSRFToken'] = getCookie('csrftoken');
 
     // State
     let editorState = {
@@ -332,7 +352,26 @@
         } catch (error) {
             console.error('Commit failed:', error);
             updateStatus('error', 'Commit failed');
-            alert('Error: ' + (error.response?.data?.error || 'Failed to commit changes'));
+
+            // Extract error message from various possible formats
+            let errorMessage = 'Failed to commit changes';
+            if (error.response?.data) {
+                if (typeof error.response.data === 'string') {
+                    errorMessage = error.response.data;
+                } else if (error.response.data.error) {
+                    errorMessage = error.response.data.error;
+                } else if (error.response.data.message) {
+                    errorMessage = error.response.data.message;
+                } else if (error.response.data.detail) {
+                    errorMessage = error.response.data.detail;
+                } else {
+                    errorMessage = JSON.stringify(error.response.data);
+                }
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+
+            alert('Error: ' + errorMessage);
         }
     });
 

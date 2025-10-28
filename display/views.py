@@ -484,6 +484,66 @@ def page_history(request, file_path):
         raise Http404(f"Error loading history: {str(e)}")
 
 
+@require_http_methods(["GET", "POST"])
+def new_page(request):
+    """
+    Show form for creating a new wiki page.
+
+    GET /wiki/new/?path=<optional-directory>
+    POST /wiki/new/ - Validates path and redirects to editor
+    """
+    try:
+        # Get suggested path from query parameter
+        suggested_path = request.GET.get('path', '').strip('/')
+
+        if request.method == 'POST':
+            # Get the path from form submission
+            file_path = request.POST.get('file_path', '').strip()
+
+            # Validate path
+            if not file_path:
+                context = {
+                    'error': 'Please enter a page path',
+                    'suggested_path': suggested_path,
+                    'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Page', 'url': '/wiki/new/'}]
+                }
+                logger.warning(f'New page creation failed: empty path [DISPLAY-NEWPAGE01]')
+                return render(request, 'display/new_page.html', context)
+
+            # Ensure .md extension
+            if not file_path.endswith('.md'):
+                file_path += '.md'
+
+            # Validate path doesn't try to escape wiki directory
+            if '..' in file_path or file_path.startswith('/'):
+                context = {
+                    'error': 'Invalid path: cannot use ".." or start with "/"',
+                    'file_path': file_path,
+                    'suggested_path': suggested_path,
+                    'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Page', 'url': '/wiki/new/'}]
+                }
+                logger.warning(f'New page creation failed: invalid path {file_path} [DISPLAY-NEWPAGE02]')
+                return render(request, 'display/new_page.html', context)
+
+            # Redirect to editor
+            editor_url = f'/editor/edit/{file_path}'
+            logger.info(f'Redirecting to editor for new page: {file_path} [DISPLAY-NEWPAGE03]')
+            return redirect(editor_url)
+
+        # GET request - show form
+        context = {
+            'suggested_path': suggested_path,
+            'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Page', 'url': '/wiki/new/'}]
+        }
+
+        logger.info(f'Displaying new page form (suggested path: {suggested_path or "none"}) [DISPLAY-NEWPAGE04]')
+        return render(request, 'display/new_page.html', context)
+
+    except Exception as e:
+        logger.error(f'Error in new page view: {str(e)} [DISPLAY-NEWPAGE05]')
+        raise Http404(f"Error creating page: {str(e)}")
+
+
 # Error Handlers
 # AIDEV-NOTE: error-handlers; Custom error pages for better user experience
 
