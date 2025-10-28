@@ -264,7 +264,7 @@
                 file_path: editorState.filePath
             });
 
-            const data = response.data;
+            const data = response.data.data;  // API returns {success: true, data: {...}}
             editorState.sessionId = data.session_id;
             editorState.branchName = data.branch_name;
 
@@ -317,7 +317,7 @@
                 content: content
             });
 
-            const data = response.data;
+            const data = response.data.data;  // API returns {success: true, data: {...}}
             editorState.lastSaved = new Date(data.saved_at);
             editorState.modified = false;
 
@@ -368,7 +368,7 @@
                 commit_message: commitMessage
             });
 
-            const data = response.data;
+            const data = response.data.data;  // API returns {success: true, data: {...}}
 
             // Clear localStorage
             localStorage.removeItem(LOCALSTORAGE_KEY);
@@ -403,16 +403,18 @@
                 auto_push: true
             });
 
-            const data = response.data;
+            const responseData = response.data;  // API returns {success: true, data: {...}} or {success: false, conflict: true}
 
-            if (data.success) {
+            if (responseData.success) {
+                const data = responseData.data;
+
                 // Clear localStorage
                 localStorage.removeItem(LOCALSTORAGE_KEY);
 
                 alert('Published successfully! Redirecting to view page...');
                 window.location.href = '/'; // or data.url when display service is ready
 
-            } else if (data.conflict) {
+            } else if (responseData.conflict) {
                 // Handle conflict
                 bootstrap.Modal.getInstance(document.getElementById('publishModal')).hide();
                 alert('Merge conflict detected!\n\nYour changes conflict with changes on the main branch. You will need to resolve the conflict before publishing.\n\nConflict resolution will be available in Phase 4.');
@@ -466,7 +468,7 @@
                 }
             });
 
-            const data = response.data;
+            const data = response.data.data;  // API returns {success: true, data: {...}}
 
             // Insert markdown at cursor
             const cm = editorState.simplemde.codemirror;
