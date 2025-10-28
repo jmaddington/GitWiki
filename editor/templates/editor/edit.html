@@ -162,6 +162,39 @@
     // Configure axios to send CSRF token with every request
     axios.defaults.headers.common['X-CSRFToken'] = getCookie('csrftoken');
 
+    // Helper function to extract error messages from API responses
+    function extractErrorMessage(error, defaultMessage = 'An error occurred') {
+        if (error.response?.data) {
+            const data = error.response.data;
+
+            if (typeof data === 'string') {
+                return data;
+            } else if (data.error?.message) {
+                // Standardized error format: {success: false, error: {message: '...', validation_errors: {...}}}
+                let message = data.error.message;
+
+                // Add validation errors if present
+                if (data.error.validation_errors) {
+                    const validationErrors = data.error.validation_errors;
+                    const errorList = Object.entries(validationErrors)
+                        .map(([field, errors]) => `${field}: ${Array.isArray(errors) ? errors.join(', ') : errors}`)
+                        .join('\n');
+                    message += '\n\nValidation errors:\n' + errorList;
+                }
+                return message;
+            } else if (data.message) {
+                return data.message;
+            } else if (data.detail) {
+                return data.detail;
+            } else {
+                return JSON.stringify(data, null, 2);
+            }
+        } else if (error.message) {
+            return error.message;
+        }
+        return defaultMessage;
+    }
+
     // State
     let editorState = {
         sessionId: null,
@@ -253,7 +286,7 @@
         } catch (error) {
             console.error('Failed to start edit session:', error);
             updateStatus('error', 'Failed to start session');
-            alert('Error: ' + (error.response?.data?.error || 'Failed to start edit session'));
+            alert('Error: ' + extractErrorMessage(error, 'Failed to start edit session'));
         }
     }
 
@@ -352,26 +385,7 @@
         } catch (error) {
             console.error('Commit failed:', error);
             updateStatus('error', 'Commit failed');
-
-            // Extract error message from various possible formats
-            let errorMessage = 'Failed to commit changes';
-            if (error.response?.data) {
-                if (typeof error.response.data === 'string') {
-                    errorMessage = error.response.data;
-                } else if (error.response.data.error) {
-                    errorMessage = error.response.data.error;
-                } else if (error.response.data.message) {
-                    errorMessage = error.response.data.message;
-                } else if (error.response.data.detail) {
-                    errorMessage = error.response.data.detail;
-                } else {
-                    errorMessage = JSON.stringify(error.response.data);
-                }
-            } else if (error.message) {
-                errorMessage = error.message;
-            }
-
-            alert('Error: ' + errorMessage);
+            alert('Error: ' + extractErrorMessage(error, 'Failed to commit changes'));
         }
     });
 
@@ -412,7 +426,7 @@
             if (error.response?.status === 409) {
                 alert('Merge conflict detected! Conflict resolution coming in Phase 4.');
             } else {
-                alert('Error: ' + (error.response?.data?.error || 'Failed to publish'));
+                alert('Error: ' + extractErrorMessage(error, 'Failed to publish'));
             }
         }
     });
@@ -467,7 +481,7 @@
         } catch (error) {
             console.error('Image upload failed:', error);
             updateStatus('error', 'Upload failed');
-            alert('Error: ' + (error.response?.data?.error || 'Failed to upload image'));
+            alert('Error: ' + extractErrorMessage(error, 'Failed to upload image'));
         }
     }
 
