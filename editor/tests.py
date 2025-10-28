@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import json
+import git
 
 from .models import EditSession
 from git_service.git_operations import GitRepository
@@ -447,6 +448,37 @@ class EditorAPITest(TestCase):
         data = response.json()
 
         self.assertTrue(data['success'])
+
+    def test_binary_file_read(self):
+        """Test reading binary files without corruption."""
+        # Create a small test PNG (1x1 red pixel)
+        test_png = (
+            b'\x89PNG\r\n\x1a\n'  # PNG signature
+            b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+            b'\x08\x02\x00\x00\x00\x90wS\xde'
+            b'\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x00\x03\x00\x01\x00\x18\xdd\x8d\xb4'
+            b'\x00\x00\x00\x00IEND\xaeB`\x82'
+        )
+
+        # Write binary file to repo
+        image_path = 'images/test.png'
+        file_full_path = self.repo.repo_path / image_path
+        file_full_path.parent.mkdir(parents=True, exist_ok=True)
+        file_full_path.write_bytes(test_png)
+
+        self.repo.repo.index.add([image_path])
+        self.repo.repo.index.commit(
+            'Add test image',
+            author=git.Actor('Test', 'test@example.com')
+        )
+
+        # Test that get_file_content_binary returns bytes without corruption
+        binary_content = self.repo.get_file_content_binary(image_path, branch='main')
+
+        # Verify content is bytes and matches original
+        self.assertIsInstance(binary_content, bytes)
+        self.assertEqual(binary_content, test_png, "Binary content should match original without corruption")
+        self.assertEqual(len(binary_content), len(test_png))
 
 
 class EditorViewsTest(TestCase):

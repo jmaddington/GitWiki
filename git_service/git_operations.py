@@ -521,6 +521,49 @@ class GitRepository:
             logger.error(f'Failed to read file {file_path}: {str(e)} [GITOPS-READ01]')
             raise GitRepositoryError(f"Failed to read file: {str(e)}")
 
+    def get_file_content_binary(self, file_path: str, branch: str = 'main') -> bytes:
+        """
+        Get binary content of a file from a specific branch.
+
+        AIDEV-NOTE: binary-files-read; Read binary files (images, PDFs) without text encoding
+
+        Args:
+            file_path: Relative path to file
+            branch: Branch name (default: 'main')
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            GitRepositoryError: If file doesn't exist or can't be read
+        """
+        try:
+            # Save current branch
+            current_branch = self.repo.active_branch.name
+
+            # Checkout target branch
+            self.repo.heads[branch].checkout()
+
+            # Read file as binary
+            full_path = self.repo_path / file_path
+            if not full_path.exists():
+                raise GitRepositoryError(f"File {file_path} not found in branch {branch}")
+
+            content = full_path.read_bytes()
+            logger.info(f'Read binary file {file_path} from {branch} ({len(content)} bytes) [GITOPS-READ-BIN01]')
+
+            # Return to original branch
+            if current_branch != branch:
+                self.repo.heads[current_branch].checkout()
+
+            return content
+
+        except GitRepositoryError:
+            raise
+        except Exception as e:
+            logger.error(f'Failed to read binary file {file_path}: {str(e)} [GITOPS-READ-BIN02]')
+            raise GitRepositoryError(f"Failed to read binary file: {str(e)}")
+
     def list_branches(self, pattern: Optional[str] = None) -> List[str]:
         """
         List all branches, optionally filtered by pattern.

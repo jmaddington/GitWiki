@@ -678,12 +678,13 @@ class ResolveConflictAPIView(APIView):
                 # User chose the 'theirs' version (main branch)
                 # We need to get that file from main branch
                 repo = get_repository()
-                theirs_content = repo.get_file_content(file_path, branch='main')
+                theirs_content = repo.get_file_content_binary(file_path, branch='main')
 
                 # Write to temp location for binary handling
                 temp_path = Path(f'/tmp/{uuid.uuid4()}.tmp')
-                temp_path.write_bytes(theirs_content.encode() if isinstance(theirs_content, str) else theirs_content)
+                temp_path.write_bytes(theirs_content)
                 resolution_content = str(temp_path)
+                logger.info(f'Prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
 
             # User info
             user_info = {
