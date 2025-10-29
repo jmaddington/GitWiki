@@ -41,6 +41,7 @@ Key AIDEV-NOTEs in codebase:
 Configuration:
 - `security-config` (settings.py:32) - Load SECRET_KEY and config from environment
 - `repo-path-config` (settings.py:24) - Git repository location configuration
+- `logs-dir-creation` (settings.py:180) - Create logs directory if it doesn't exist
 - `production-config` (settings_production.py:17) - Production-specific security settings
 - `production-logging` (settings_production.py:62) - Centralized logging for production
 - `api-utils` (config/api_utils.py:6) - Standardized error handling for all API endpoints
@@ -208,4 +209,4 @@ Error Handlers (Phase 7):
 - ERROR-403: Permission denied (403 error)
 
 Settings:
-- SETTINGS-LOG01
+- SETTINGS-LOG01, SETTINGS-LOGS01

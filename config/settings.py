@@ -177,6 +177,10 @@ REST_FRAMEWORK = {
     ],
 }
 
+# AIDEV-NOTE: logs-dir-creation; Create logs directory if it doesn't exist
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
 # Logging configuration with grepable codes
 # AIDEV-NOTE: logging-codes; All log statements must include unique grepable codes [SETTINGS-LOG01]
 LOGGING = {
