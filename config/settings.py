@@ -181,10 +181,8 @@ REST_FRAMEWORK = {
 LOGS_DIR = BASE_DIR / 'logs'
 try:
     LOGS_DIR.mkdir(mode=0o750, exist_ok=True)
-    if not LOGS_DIR.exists():
-        raise RuntimeError(f'Failed to create logs directory at {LOGS_DIR}')
 except OSError as e:
-    logger.error(f'Cannot create logs directory at {LOGS_DIR}: {e} [SETTINGS-LOGS01]')
+    print(f'ERROR: Cannot create logs directory at {LOGS_DIR}: {e} [SETTINGS-LOGS01]')
     raise RuntimeError(f'Failed to create logs directory: {e}') from e
 
 # Logging configuration with grepable codes
