@@ -543,3 +543,137 @@ class SSHUtilityTests(TestCase):
             extract_repo_name('git@github.com:user/repo'),
             'repo'
         )
+
+
+class ThreadSafetyTest(TestCase):
+    """
+    Tests for thread safety of repository singleton.
+
+    AIDEV-NOTE: thread-safety-tests; Ensure singleton is safe in concurrent environments
+    """
+
+    def setUp(self):
+        """Reset the singleton before each test."""
+        import git_service.git_operations as git_ops
+        git_ops._repo_instance = None
+
+    def test_singleton_thread_safety(self):
+        """Test that get_repository is thread-safe and returns the same instance."""
+        import threading
+        from .git_operations import get_repository
+
+        instances = []
+        barrier = threading.Barrier(10)
+
+        def get_repo_thread():
+            barrier.wait()
+            repo = get_repository()
+            instances.append(id(repo))
+
+        threads = [threading.Thread(target=get_repo_thread) for _ in range(10)]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(len(set(instances)), 1, 'All threads should get the same instance')
+
+    def test_concurrent_initialization(self):
+        """Test that concurrent calls to get_repository only initialize once."""
+        import threading
+        from .git_operations import get_repository
+        import git_service.git_operations as git_ops
+
+        init_count = {'count': 0}
+        original_init = git_ops.GitRepository.__init__
+
+        def counting_init(self, repo_path=None):
+            init_count['count'] += 1
+            original_init(self, repo_path)
+
+        try:
+            git_ops.GitRepository.__init__ = counting_init
+
+            barrier = threading.Barrier(20)
+
+            def get_repo_thread():
+                barrier.wait()
+                get_repository()
+
+            threads = [threading.Thread(target=get_repo_thread) for _ in range(20)]
+
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(init_count['count'], 1, 'GitRepository should only be initialized once')
+        finally:
+            git_ops.GitRepository.__init__ = original_init
+
+    def test_lock_acquisition(self):
+        """Test that lock is properly acquired and released."""
+        import threading
+        from .git_operations import get_repository, _repo_lock
+
+        self.assertFalse(_repo_lock.locked(), 'Lock should not be held initially')
+
+        repo = get_repository()
+        self.assertIsNotNone(repo)
+
+        self.assertFalse(_repo_lock.locked(), 'Lock should be released after initialization')
+
+    def test_double_checked_locking_performance(self):
+        """Test that double-checked locking avoids lock contention after initialization."""
+        import threading
+        import time
+        from .git_operations import get_repository
+
+        get_repository()
+
+        start_time = time.time()
+
+        def get_repo_thread():
+            for _ in range(1000):
+                get_repository()
+
+        threads = [threading.Thread(target=get_repo_thread) for _ in range(5)]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        elapsed = time.time() - start_time
+
+        self.assertLess(elapsed, 1.0, 'Should complete quickly without lock contention')
+
+    def test_concurrent_operations_different_threads(self):
+        """Test that multiple threads can use the repository concurrently."""
+        import threading
+        from .git_operations import get_repository
+
+        results = {'success': 0, 'failure': 0}
+        lock = threading.Lock()
+
+        def repo_operation_thread():
+            try:
+                repo = get_repository()
+                self.assertIsNotNone(repo)
+                self.assertIsNotNone(repo.repo)
+                with lock:
+                    results['success'] += 1
+            except Exception:
+                with lock:
+                    results['failure'] += 1
+
+        threads = [threading.Thread(target=repo_operation_thread) for _ in range(50)]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(results['success'], 50, 'All threads should succeed')
+        self.assertEqual(results['failure'], 0, 'No threads should fail')
