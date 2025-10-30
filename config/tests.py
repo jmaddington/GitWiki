@@ -306,103 +306,60 @@ class ConfigurationManagementTestCase(TestCase):
 class SecurityValidationTestCase(TestCase):
     """Test security validation at startup."""
 
-    def test_production_blocks_default_secret_key(self):
-        """Test that production mode refuses to start with default SECRET_KEY."""
+    def _run_startup_test(self, debug, secret_key, expected_exit_code):
+        """Helper to run startup test in a subprocess with given settings."""
         import subprocess
         import os
+        import sys
 
-        # Create a test script that simulates production startup
-        test_script = '''
+        test_script = f'''
 import sys
 import os
-os.environ['DEBUG'] = 'False'
-os.environ['SECRET_KEY'] = 'django-insecure-dev-key-CHANGE-IN-PRODUCTION'
+os.environ['DEBUG'] = '{debug}'
+os.environ['SECRET_KEY'] = '{secret_key}'
 os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
 
 try:
     import django
     django.setup()
-    sys.exit(0)  # Should not reach here
+    sys.exit(0)
 except SystemExit as e:
     sys.exit(e.code)
+except Exception as e:
+    print(f"Error: {{e}}", file=sys.stderr)
+    sys.exit(2)
 '''
-
-        # Run the test script
+        # Run the test script with the same Python interpreter as the test runner
         result = subprocess.run(
-            ['python3', '-c', test_script],
+            [sys.executable, '-c', test_script],
             capture_output=True,
             cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
 
-        # Should exit with code 1
-        self.assertEqual(result.returncode, 1)
-        # Should have error message in stderr
+        self.assertEqual(result.returncode, expected_exit_code, result.stderr.decode())
+        return result
+
+    def test_production_blocks_default_secret_key(self):
+        """Test that production mode refuses to start with default SECRET_KEY."""
+        result = self._run_startup_test(
+            debug='False',
+            secret_key='django-insecure-dev-key-CHANGE-IN-PRODUCTION',
+            expected_exit_code=1
+        )
         self.assertIn(b'SECURITY-FATAL', result.stderr)
 
     def test_development_allows_default_secret_key(self):
         """Test that development mode allows default SECRET_KEY."""
-        import subprocess
-        import os
-
-        # Create a test script that simulates development startup
-        test_script = '''
-import sys
-import os
-os.environ['DEBUG'] = 'True'
-os.environ['SECRET_KEY'] = 'django-insecure-dev-key-CHANGE-IN-PRODUCTION'
-os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
-
-try:
-    import django
-    django.setup()
-    sys.exit(0)  # Should reach here successfully
-except SystemExit as e:
-    sys.exit(e.code)
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-    sys.exit(2)
-'''
-
-        # Run the test script
-        result = subprocess.run(
-            ['python3', '-c', test_script],
-            capture_output=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._run_startup_test(
+            debug='True',
+            secret_key='django-insecure-dev-key-CHANGE-IN-PRODUCTION',
+            expected_exit_code=0
         )
-
-        # Should exit with code 0 (success)
-        self.assertEqual(result.returncode, 0)
 
     def test_production_allows_custom_secret_key(self):
         """Test that production mode allows custom SECRET_KEY."""
-        import subprocess
-        import os
-
-        # Create a test script that simulates production startup with custom key
-        test_script = '''
-import sys
-import os
-os.environ['DEBUG'] = 'False'
-os.environ['SECRET_KEY'] = 'custom-secure-secret-key-for-production-12345'
-os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
-
-try:
-    import django
-    django.setup()
-    sys.exit(0)  # Should reach here successfully
-except SystemExit as e:
-    sys.exit(e.code)
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-    sys.exit(2)
-'''
-
-        # Run the test script
-        result = subprocess.run(
-            ['python3', '-c', test_script],
-            capture_output=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._run_startup_test(
+            debug='False',
+            secret_key='custom-secure-secret-key-for-production-12345',
+            expected_exit_code=0
         )
-
-        # Should exit with code 0 (success)
-        self.assertEqual(result.returncode, 0)
