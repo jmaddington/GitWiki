@@ -35,6 +35,17 @@ jobs:
         git config --global user.name "Test User"
         git config --global init.defaultBranch main
 
+    - name: Initialize test wiki repository
+      run: |
+        mkdir -p repo
+        cd repo
+        git init
+        git config user.email "test@example.com"
+        git config user.name "Test User"
+        echo "# Test Wiki" > README.md
+        git add README.md
+        git commit -m "Initial commit"
+
     - name: Create test environment file
       run: |
         cat > .env << EOF
@@ -56,7 +67,7 @@ jobs:
 
     - name: Run tests with pytest
       run: |
-        pytest --cov=. --cov-report=xml --cov-report=term-missing
+        pytest --cov=config --cov=git_service --cov=editor --cov=display --cov-report=xml --cov-report=term-missing
       env:
         DJANGO_SETTINGS_MODULE: config.settings
 
