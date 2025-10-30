@@ -77,7 +77,7 @@ class GitRepository:
                 # Create initial commit
                 readme_path = self.repo_path / "README.md"
                 readme_path.write_text("# GitWiki\n\nWelcome to GitWiki!\n")
-                self.repo.index.add([str(readme_path)])
+                self.repo.index.add(["README.md"])
                 self.repo.index.commit("Initial commit")
                 logger.info('Repository initialized with initial commit [GITREPO-INIT02]')
             else:
