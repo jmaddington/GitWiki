@@ -4,6 +4,10 @@ Tests for permission middleware and authentication.
 AIDEV-NOTE: permission-tests; Comprehensive permission system testing
 """
 
+import os
+import subprocess
+import sys
+
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -308,32 +312,33 @@ class SecurityValidationTestCase(TestCase):
 
     def _run_startup_test(self, debug, secret_key, expected_exit_code):
         """Helper to run startup test in a subprocess with given settings."""
-        import subprocess
-        import os
-        import sys
-
-        test_script = f'''
+        # Use static script without interpolation to avoid code injection
+        test_script = '''
 import sys
-import os
-os.environ['DEBUG'] = '{debug}'
-os.environ['SECRET_KEY'] = '{secret_key}'
-os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
-
+import django
 try:
-    import django
     django.setup()
     sys.exit(0)
 except SystemExit as e:
     sys.exit(e.code)
 except Exception as e:
-    print(f"Error: {{e}}", file=sys.stderr)
+    print(f"Error: {e}", file=sys.stderr)
     sys.exit(2)
 '''
+        # Pass environment variables safely via env parameter
+        test_env = os.environ.copy()
+        test_env.update({
+            'DEBUG': debug,
+            'SECRET_KEY': secret_key,
+            'DJANGO_SETTINGS_MODULE': 'config.settings'
+        })
+
         # Run the test script with the same Python interpreter as the test runner
         result = subprocess.run(
             [sys.executable, '-c', test_script],
             capture_output=True,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env=test_env
         )
 
         self.assertEqual(result.returncode, expected_exit_code, result.stderr.decode())
