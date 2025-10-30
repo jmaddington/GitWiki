@@ -16,6 +16,7 @@ import shutil
 import uuid
 import json
 import time
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -1824,17 +1825,31 @@ class GitRepository:
 
 
 # Global repository instance
+# AIDEV-NOTE: thread-safe-singleton; Lock protects initialization from race conditions
 _repo_instance = None
+_repo_lock = threading.Lock()
 
 
 def get_repository() -> GitRepository:
     """
     Get global GitRepository instance (singleton pattern).
 
+    Thread-safe implementation using double-checked locking pattern.
+    This prevents race conditions when multiple threads try to initialize
+    the repository simultaneously in multi-threaded environments like
+    Gunicorn with threading workers.
+
     Returns:
         GitRepository instance
     """
     global _repo_instance
+
+    # First check (without lock) for performance
     if _repo_instance is None:
-        _repo_instance = GitRepository()
+        # Acquire lock for initialization
+        with _repo_lock:
+            # Second check (with lock) to prevent race condition
+            if _repo_instance is None:
+                _repo_instance = GitRepository()
+
     return _repo_instance
