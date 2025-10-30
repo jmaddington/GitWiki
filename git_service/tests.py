@@ -592,24 +592,25 @@ class ThreadSafetyTest(TestCase):
             init_count['count'] += 1
             original_init(self, repo_path)
 
-        git_ops.GitRepository.__init__ = counting_init
+        try:
+            git_ops.GitRepository.__init__ = counting_init
 
-        barrier = threading.Barrier(20)
+            barrier = threading.Barrier(20)
 
-        def get_repo_thread():
-            barrier.wait()
-            get_repository()
+            def get_repo_thread():
+                barrier.wait()
+                get_repository()
 
-        threads = [threading.Thread(target=get_repo_thread) for _ in range(20)]
+            threads = [threading.Thread(target=get_repo_thread) for _ in range(20)]
 
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
 
-        git_ops.GitRepository.__init__ = original_init
-
-        self.assertEqual(init_count['count'], 1, 'GitRepository should only be initialized once')
+            self.assertEqual(init_count['count'], 1, 'GitRepository should only be initialized once')
+        finally:
+            git_ops.GitRepository.__init__ = original_init
 
     def test_lock_acquisition(self):
         """Test that lock is properly acquired and released."""
