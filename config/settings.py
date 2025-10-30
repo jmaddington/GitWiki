@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 import logging
 from decouple import config, Csv
 
@@ -41,7 +42,12 @@ if DEBUG:
 else:
     logger.info('Production mode enabled with DEBUG=False [SECURITY-02]')
 
-if SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
+# Validate SECRET_KEY in production
+if not DEBUG and SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
+    print('CRITICAL: Cannot start in production with default SECRET_KEY [SECURITY-FATAL]', file=sys.stderr)
+    logger.critical('Cannot start in production with default SECRET_KEY [SECURITY-FATAL]')
+    sys.exit(1)
+elif SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
     logger.warning('Using default SECRET_KEY - MUST change for production [SECURITY-03]')
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())

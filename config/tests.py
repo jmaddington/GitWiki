@@ -301,3 +301,108 @@ class ConfigurationManagementTestCase(TestCase):
         # Should use default or show warning
         max_size = Configuration.get_config('max_image_size_mb')
         self.assertLessEqual(max_size, 100)
+
+
+class SecurityValidationTestCase(TestCase):
+    """Test security validation at startup."""
+
+    def test_production_blocks_default_secret_key(self):
+        """Test that production mode refuses to start with default SECRET_KEY."""
+        import subprocess
+        import os
+
+        # Create a test script that simulates production startup
+        test_script = '''
+import sys
+import os
+os.environ['DEBUG'] = 'False'
+os.environ['SECRET_KEY'] = 'django-insecure-dev-key-CHANGE-IN-PRODUCTION'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
+
+try:
+    import django
+    django.setup()
+    sys.exit(0)  # Should not reach here
+except SystemExit as e:
+    sys.exit(e.code)
+'''
+
+        # Run the test script
+        result = subprocess.run(
+            ['python3', '-c', test_script],
+            capture_output=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        # Should exit with code 1
+        self.assertEqual(result.returncode, 1)
+        # Should have error message in stderr
+        self.assertIn(b'SECURITY-FATAL', result.stderr)
+
+    def test_development_allows_default_secret_key(self):
+        """Test that development mode allows default SECRET_KEY."""
+        import subprocess
+        import os
+
+        # Create a test script that simulates development startup
+        test_script = '''
+import sys
+import os
+os.environ['DEBUG'] = 'True'
+os.environ['SECRET_KEY'] = 'django-insecure-dev-key-CHANGE-IN-PRODUCTION'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
+
+try:
+    import django
+    django.setup()
+    sys.exit(0)  # Should reach here successfully
+except SystemExit as e:
+    sys.exit(e.code)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(2)
+'''
+
+        # Run the test script
+        result = subprocess.run(
+            ['python3', '-c', test_script],
+            capture_output=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        # Should exit with code 0 (success)
+        self.assertEqual(result.returncode, 0)
+
+    def test_production_allows_custom_secret_key(self):
+        """Test that production mode allows custom SECRET_KEY."""
+        import subprocess
+        import os
+
+        # Create a test script that simulates production startup with custom key
+        test_script = '''
+import sys
+import os
+os.environ['DEBUG'] = 'False'
+os.environ['SECRET_KEY'] = 'custom-secure-secret-key-for-production-12345'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings'
+
+try:
+    import django
+    django.setup()
+    sys.exit(0)  # Should reach here successfully
+except SystemExit as e:
+    sys.exit(e.code)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(2)
+'''
+
+        # Run the test script
+        result = subprocess.run(
+            ['python3', '-c', test_script],
+            capture_output=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+
+        # Should exit with code 0 (success)
+        self.assertEqual(result.returncode, 0)
