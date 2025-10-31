@@ -791,6 +791,7 @@ class GitRepository:
         """
         start_time = time.time()
         temp_dir = None
+        temp_moved = False
 
         try:
             # Save current branch
@@ -855,8 +856,18 @@ class GitRepository:
             # Atomic move to final location
             final_dir = settings.WIKI_STATIC_PATH / branch_name
             if final_dir.exists():
-                shutil.rmtree(final_dir)
-            shutil.move(str(temp_dir), str(final_dir))
+                try:
+                    shutil.rmtree(final_dir)
+                except Exception as e:
+                    logger.error(f'Failed to remove existing directory {final_dir}: {str(e)} [GITOPS-STATIC05]')
+                    raise GitRepositoryError(f'Failed to remove existing directory: {str(e)}')
+
+            try:
+                shutil.move(str(temp_dir), str(final_dir))
+                temp_moved = True
+            except Exception as e:
+                logger.error(f'Failed to move {temp_dir} to {final_dir}: {str(e)} [GITOPS-STATIC06]')
+                raise GitRepositoryError(f'Failed to move temp directory to final location: {str(e)}')
 
             # Return to original branch
             if current_branch != branch_name:
@@ -887,10 +898,6 @@ class GitRepository:
             }
 
         except Exception as e:
-            # Cleanup temp directory on error
-            if temp_dir and temp_dir.exists():
-                shutil.rmtree(temp_dir)
-
             execution_time = int((time.time() - start_time) * 1000)
             error_msg = f'Failed to generate static files: {str(e)}'
 
@@ -907,6 +914,15 @@ class GitRepository:
 
             logger.error(f'{error_msg} [GITOPS-STATIC03]')
             raise GitRepositoryError(error_msg)
+
+        finally:
+            # Guaranteed cleanup of temp directory if it wasn't successfully moved
+            if temp_dir and temp_dir.exists() and not temp_moved:
+                try:
+                    shutil.rmtree(temp_dir)
+                    logger.debug(f'Cleaned up temp directory {temp_dir} [GITOPS-STATIC04]')
+                except Exception as cleanup_err:
+                    logger.error(f'Failed to cleanup temp directory {temp_dir}: {str(cleanup_err)} [GITOPS-STATIC04]')
 
     def get_conflicts(self, cache_timeout: int = 120) -> Dict:
         """
