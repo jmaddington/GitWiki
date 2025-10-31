@@ -288,9 +288,30 @@ class CacheUtilsTest(TestCase):
         """Test branch cache invalidation."""
         from config.cache_utils import invalidate_branch_cache
 
-        # This should run without errors
+        # Set various cache entries for a branch
+        cache.set('metadata:main:test.md', {'title': 'Test'}, 3600)
+        cache.set('metadata:main:other.md', {'title': 'Other'}, 3600)
+        cache.set('directory:main:root', ['file1', 'file2'], 600)
+        cache.set('directory:main:subdir', ['file3'], 600)
+        cache.set('search:main:test', [{'title': 'Result'}], 300)
+        cache.set('search:main:other', [{'title': 'Result2'}], 300)
+
+        # Also set cache for a different branch (should not be affected)
+        cache.set('metadata:draft-1:test.md', {'title': 'Draft'}, 3600)
+
+        # Invalidate main branch
         invalidate_branch_cache('main')
-        invalidate_branch_cache('draft-1-test')
+
+        # All main branch caches should be cleared
+        self.assertIsNone(cache.get('metadata:main:test.md'))
+        self.assertIsNone(cache.get('metadata:main:other.md'))
+        self.assertIsNone(cache.get('directory:main:root'))
+        self.assertIsNone(cache.get('directory:main:subdir'))
+        self.assertIsNone(cache.get('search:main:test'))
+        self.assertIsNone(cache.get('search:main:other'))
+
+        # Other branch should still have cache
+        self.assertIsNotNone(cache.get('metadata:draft-1:test.md'))
 
     def test_invalidate_file_cache(self):
         """Test file cache invalidation."""
@@ -310,14 +331,30 @@ class CacheUtilsTest(TestCase):
         """Test search cache invalidation."""
         from config.cache_utils import invalidate_search_cache
 
-        # Set search cache
-        cache.set('search:main:query', ['result1'], 300)
+        # Set search cache for multiple branches and queries
+        cache.set('search:main:query1', ['result1'], 300)
+        cache.set('search:main:query2', ['result2'], 300)
+        cache.set('search:draft-1:query3', ['result3'], 300)
 
-        # Invalidate
+        # Invalidate main branch search cache
         invalidate_search_cache('main')
 
-        # Note: With Django's default cache, pattern deletion isn't supported
-        # This test just ensures the function runs without error
+        # Main branch search caches should be cleared
+        self.assertIsNone(cache.get('search:main:query1'))
+        self.assertIsNone(cache.get('search:main:query2'))
+
+        # Other branch should still have cache
+        self.assertIsNotNone(cache.get('search:draft-1:query3'))
+
+        # Test clearing all search caches
+        cache.set('search:main:query4', ['result4'], 300)
+        cache.set('search:draft-1:query5', ['result5'], 300)
+
+        invalidate_search_cache()  # No branch specified = clear all
+
+        self.assertIsNone(cache.get('search:main:query4'))
+        self.assertIsNone(cache.get('search:draft-1:query3'))  # From earlier
+        self.assertIsNone(cache.get('search:draft-1:query5'))
 
     def test_clear_all_caches(self):
         """Test clearing all caches."""
