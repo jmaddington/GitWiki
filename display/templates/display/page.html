@@ -1,6 +1,6 @@
 {% extends "display/base.html" %}
 
-{% block title %}{{ breadcrumbs|last|default:'Home' }} - GitWiki{% endblock %}
+{% block title %}{{ breadcrumbs|last.name|default:'Home' }} - GitWiki{% endblock %}
 
 {% block content %}
 <div class="row">
