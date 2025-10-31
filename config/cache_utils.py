@@ -114,7 +114,7 @@ def invalidate_search_cache(branch_name: str = None):
             logger.info(f'Pattern deletion supported, cleared {deleted_count} search cache keys for branch: {branch_name or "all"} [CACHE-PATTERN03]')
         else:
             # Fallback: rely on TTL expiration (5 minutes)
-            logger.info(f'Pattern deletion not supported, relying on TTL for search cache: {branch_name or "all"} [CACHE-PATTERN02]')
+            logger.info(f'Pattern deletion not supported, relying on TTL for search cache: {branch_name or "all"} [CACHE-PATTERN04]')
 
     except Exception as e:
         logger.warning(f'Failed to invalidate search cache: {str(e)} [CACHE-INVALIDATE06]')
