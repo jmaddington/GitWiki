@@ -10,6 +10,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _supports_pattern_deletion():
+    """
+    Check if the cache backend supports pattern-based deletion.
+
+    Returns:
+        bool: True if cache.delete_pattern() is available (e.g., Redis backend)
+    """
+    return hasattr(cache, 'delete_pattern') and callable(getattr(cache, 'delete_pattern'))
+
+
 def invalidate_branch_cache(branch_name: str):
     """
     Invalidate all caches for a specific branch.
@@ -23,18 +33,23 @@ def invalidate_branch_cache(branch_name: str):
         branch_name: Name of branch to invalidate cache for
     """
     try:
-        # Pattern matching for cache keys
-        # Django's default cache doesn't support pattern deletion,
-        # so we track what to delete
+        if _supports_pattern_deletion():
+            # Redis backend supports pattern deletion
+            patterns = [
+                f'metadata:{branch_name}:*',
+                f'directory:{branch_name}:*',
+                f'search:{branch_name}:*'
+            ]
 
-        # Clear metadata cache for this branch
-        # Note: We can't iterate cache keys in Django's default cache backend,
-        # so we'll just let items expire naturally or use cache versioning
+            deleted_count = 0
+            for pattern in patterns:
+                deleted = cache.delete_pattern(pattern)
+                deleted_count += deleted if isinstance(deleted, int) else 0
 
-        logger.info(f'Cache invalidation requested for branch: {branch_name} [CACHE-INVALIDATE01]')
-
-        # For now, we'll rely on TTL expiration
-        # In production with Redis, you could use cache.delete_pattern(f'*:{branch_name}:*')
+            logger.info(f'Pattern deletion supported, cleared {deleted_count} keys for branch: {branch_name} [CACHE-PATTERN01]')
+        else:
+            # Fallback: rely on TTL expiration
+            logger.info(f'Pattern deletion not supported, relying on TTL for branch: {branch_name} [CACHE-PATTERN02]')
 
     except Exception as e:
         logger.warning(f'Failed to invalidate cache for {branch_name}: {str(e)} [CACHE-INVALIDATE02]')
@@ -86,17 +101,20 @@ def invalidate_search_cache(branch_name: str = None):
         branch_name: Optional branch name (if None, clears all search caches)
     """
     try:
-        # Django's default cache doesn't support pattern deletion
-        # In production with Redis, you could do:
-        # if branch_name:
-        #     cache.delete_pattern(f'search:{branch_name}:*')
-        # else:
-        #     cache.delete_pattern('search:*')
+        if _supports_pattern_deletion():
+            # Redis backend supports pattern deletion
+            if branch_name:
+                pattern = f'search:{branch_name}:*'
+            else:
+                pattern = 'search:*'
 
-        logger.info(f'Search cache invalidation requested for branch: {branch_name or "all"} [CACHE-INVALIDATE05]')
+            deleted = cache.delete_pattern(pattern)
+            deleted_count = deleted if isinstance(deleted, int) else 0
 
-        # For now, rely on TTL expiration (5 minutes)
-        # This is acceptable since search results refresh quickly
+            logger.info(f'Pattern deletion supported, cleared {deleted_count} search cache keys for branch: {branch_name or "all"} [CACHE-PATTERN03]')
+        else:
+            # Fallback: rely on TTL expiration (5 minutes)
+            logger.info(f'Pattern deletion not supported, relying on TTL for search cache: {branch_name or "all"} [CACHE-PATTERN02]')
 
     except Exception as e:
         logger.warning(f'Failed to invalidate search cache: {str(e)} [CACHE-INVALIDATE06]')
