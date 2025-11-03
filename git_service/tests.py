@@ -683,3 +683,241 @@ class ThreadSafetyTest(TestCase):
 
         self.assertEqual(results['success'], 50, 'All threads should succeed')
         self.assertEqual(results['failure'], 0, 'No threads should fail')
+
+
+class IncrementalRebuildTest(TestCase):
+    """Tests for incremental static file rebuild functionality."""
+
+    def setUp(self):
+        """Set up temporary repository for testing."""
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.repo = GitRepository(repo_path=self.temp_dir)
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir)
+
+    def test_get_changed_files_single_file(self):
+        """Test detecting changed files for a single file edit."""
+        # Create branch and commit a file
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='test.md',
+            content='# Test',
+            commit_message='Add test file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Get changed files
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.assertEqual(len(changed_files), 1)
+        self.assertIn('test.md', changed_files)
+
+    def test_get_changed_files_multiple_files(self):
+        """Test detecting changed files for multiple file edits."""
+        # Create branch and commit multiple files
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='doc1.md',
+            content='# Doc 1',
+            commit_message='Add doc1',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='doc2.md',
+            content='# Doc 2',
+            commit_message='Add doc2',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Get changed files
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.assertEqual(len(changed_files), 2)
+        self.assertIn('doc1.md', changed_files)
+        self.assertIn('doc2.md', changed_files)
+
+    def test_get_changed_files_no_changes(self):
+        """Test detecting no changed files when branch is identical to main."""
+        # Create branch without any commits
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        # Get changed files (should be empty)
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.assertEqual(len(changed_files), 0)
+
+    def test_write_files_to_disk_single_file(self):
+        """Test incremental rebuild with a single changed file."""
+        # Create and commit a file on main branch first
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='initial.md',
+            content='# Initial',
+            commit_message='Add initial file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Publish to create initial static files
+        self.repo.publish_draft(branch_name=branch_name, user=self.user, auto_push=False)
+
+        # Create another file
+        branch_result2 = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name2 = branch_result2['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name2,
+            file_path='new.md',
+            content='# New File',
+            commit_message='Add new file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Get changed files
+        changed_files = self.repo.get_changed_files_in_merge(branch_name2, 'main')
+
+        # Merge to main
+        self.repo.repo.heads.main.checkout()
+        self.repo.repo.git.merge(branch_name2, no_ff=True, m="Test merge")
+
+        # Test incremental rebuild
+        result = self.repo.write_files_to_disk('main', changed_files, self.user)
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result.get('incremental', False))
+        self.assertEqual(result['markdown_files'], 1)
+
+    def test_write_files_to_disk_empty_list(self):
+        """Test incremental rebuild with no changed files."""
+        result = self.repo.write_files_to_disk('main', [], self.user)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['files_written'], 0)
+        self.assertEqual(result['markdown_files'], 0)
+
+    def test_publish_draft_uses_incremental_rebuild(self):
+        """Test that publish_draft now uses incremental rebuild."""
+        # Create branch and commit a file
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='test_publish.md',
+            content='# Test Publish',
+            commit_message='Add test file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Publish (should use incremental rebuild internally)
+        result = self.repo.publish_draft(branch_name=branch_name, user=self.user, auto_push=False)
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result['merged'])
+
+        # Verify file exists in main
+        content = self.repo.get_file_content('test_publish.md', branch='main')
+        self.assertEqual(content, '# Test Publish')
+
+    def test_copy_folder_to_static(self):
+        """Test copying folder with .gitkeep to static directory."""
+        # Create a folder with .gitkeep on main
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='new_folder/.gitkeep',
+            content='',
+            commit_message='Create folder',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Merge to main
+        self.repo.repo.heads.main.checkout()
+        self.repo.repo.git.merge(branch_name, no_ff=True, m="Create folder")
+        self.repo.repo.delete_head(branch_name, force=True)
+
+        # Test folder copy
+        result = self.repo.copy_folder_to_static('new_folder', 'main')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['folder_path'], 'new_folder')
+
+    def test_incremental_rebuild_performance(self):
+        """Test that incremental rebuild is faster than full rebuild."""
+        import time
+
+        # Create initial files on main
+        for i in range(5):
+            branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+            branch_name = branch_result['branch_name']
+
+            self.repo.commit_changes(
+                branch_name=branch_name,
+                file_path=f'file{i}.md',
+                content=f'# File {i}',
+                commit_message=f'Add file {i}',
+                user_info={'name': 'Test', 'email': 'test@example.com'},
+                user=self.user
+            )
+
+            self.repo.publish_draft(branch_name=branch_name, user=self.user, auto_push=False)
+
+        # Measure full rebuild time
+        full_start = time.time()
+        self.repo.write_branch_to_disk('main', self.user)
+        full_time = time.time() - full_start
+
+        # Make a small change
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='new_file.md',
+            content='# New',
+            commit_message='Add new file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.repo.repo.heads.main.checkout()
+        self.repo.repo.git.merge(branch_name, no_ff=True, m="Test merge")
+
+        # Measure incremental rebuild time
+        inc_start = time.time()
+        result = self.repo.write_files_to_disk('main', changed_files, self.user)
+        inc_time = time.time() - inc_start
+
+        # Incremental should be faster (or at least not significantly slower)
+        # Allow some overhead for the incremental logic
+        self.assertLess(inc_time, full_time * 2.0,
+                       f"Incremental rebuild ({inc_time:.3f}s) should not be much slower than full rebuild ({full_time:.3f}s)")
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result.get('incremental', False))

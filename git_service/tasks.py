@@ -5,6 +5,9 @@ Periodic tasks:
 - periodic_github_pull: Pull from GitHub every 5 minutes
 - cleanup_stale_branches_task: Clean up old branches daily
 - full_static_rebuild_task: Rebuild all static files weekly
+
+On-demand tasks:
+- async_full_rebuild_task: Async full rebuild after incremental updates (safety net)
 """
 
 import logging
@@ -169,6 +172,60 @@ def full_static_rebuild_task(self):
             logger.error(f'Static rebuild failed after 2 retries [TASK-REBUILD04]')
             return {
                 'success': False,
+                'message': error_msg,
+                'max_retries_exceeded': True
+            }
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def async_full_rebuild_task(self, branch_name='main'):
+    """
+    Async task: Full rebuild of static files for a specific branch.
+
+    This task is queued after incremental rebuilds as a safety net
+    to ensure eventual consistency. It regenerates all static files
+    for the specified branch.
+
+    Args:
+        branch_name: Branch to rebuild (default: 'main')
+
+    Retries: 3 attempts with 60-second delay
+    """
+    try:
+        logger.info(f'Starting async full rebuild for branch {branch_name} [TASK-ASYNC-REBUILD01]')
+
+        repo = get_repository()
+        result = repo.write_branch_to_disk(branch_name)
+
+        files_written = result.get('files_written', 0)
+        markdown_files = result.get('markdown_files', 0)
+        execution_time = result.get('execution_time_ms', 0)
+
+        logger.info(
+            f'Async rebuild completed for {branch_name}: {files_written} files, '
+            f'{markdown_files} markdown, {execution_time}ms [TASK-ASYNC-REBUILD02]'
+        )
+
+        return {
+            'success': True,
+            'branch_name': branch_name,
+            'files_written': files_written,
+            'markdown_files': markdown_files,
+            'execution_time_ms': execution_time
+        }
+
+    except Exception as e:
+        error_msg = f'Async rebuild failed for {branch_name}: {str(e)}'
+        logger.error(f'{error_msg} [TASK-ASYNC-REBUILD03]')
+
+        # Retry the task
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error(f'Async rebuild failed after 3 retries for {branch_name} [TASK-ASYNC-REBUILD04]')
+            return {
+                'success': False,
+                'branch_name': branch_name,
                 'message': error_msg,
                 'max_retries_exceeded': True
             }
