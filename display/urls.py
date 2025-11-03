@@ -25,6 +25,9 @@ urlpatterns = [
     # Page history
     path('history/<path:file_path>/', views.page_history, name='history'),
 
+    # File serving (images, videos, documents)
+    path('file/<path:file_path>', views.serve_file, name='serve-file'),
+
     # Wiki pages (catch-all, must be last)
     path('<path:file_path>/', views.wiki_page, name='page'),
 ]

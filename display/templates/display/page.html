@@ -62,20 +62,51 @@
                     </div>
                 </div>
                 {% if directory_listing %}
-                <ul class="directory-listing">
-                    {% for item in directory_listing %}
-                    <li>
-                        <a href="{{ item.url }}">
-                            {% if item.type == 'directory' %}
-                                <i class="fas fa-folder text-warning"></i>
-                            {% else %}
-                                <i class="fas fa-file-alt text-primary"></i>
-                            {% endif %}
-                            {{ item.name }}
-                        </a>
-                    </li>
-                    {% endfor %}
-                </ul>
+                <table class="table table-hover directory-listing-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th class="text-end" style="width: 120px;">Size</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in directory_listing %}
+                        <tr>
+                            <td>
+                                <a href="{{ item.url }}">
+                                    {% if item.type == 'directory' %}
+                                        <i class="fas fa-folder text-warning"></i>
+                                    {% elif item.type == 'markdown' %}
+                                        <i class="fas fa-file-alt text-primary"></i>
+                                    {% elif item.type == 'viewable_image' %}
+                                        <i class="fas fa-image text-success"></i>
+                                    {% elif item.type == 'viewable_video' %}
+                                        <i class="fas fa-film text-info"></i>
+                                    {% elif item.type == 'viewable_audio' %}
+                                        <i class="fas fa-music text-info"></i>
+                                    {% elif item.type == 'document' %}
+                                        <i class="fas fa-file text-secondary"></i>
+                                    {% elif item.type == 'code' %}
+                                        <i class="fas fa-code text-dark"></i>
+                                    {% elif item.type == 'archive' %}
+                                        <i class="fas fa-archive text-warning"></i>
+                                    {% else %}
+                                        <i class="fas fa-file text-muted"></i>
+                                    {% endif %}
+                                    {{ item.name }}
+                                </a>
+                            </td>
+                            <td class="text-end text-muted">
+                                {% if item.size %}
+                                    {{ item.size }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% else %}
                 <p class="text-muted">This directory is empty.</p>
                 {% endif %}
@@ -134,8 +165,22 @@
                     <a href="{{ item.url }}">
                         {% if item.type == 'directory' %}
                             <i class="fas fa-folder text-warning"></i>
-                        {% else %}
+                        {% elif item.type == 'markdown' %}
                             <i class="fas fa-file-alt text-primary"></i>
+                        {% elif item.type == 'viewable_image' %}
+                            <i class="fas fa-image text-success"></i>
+                        {% elif item.type == 'viewable_video' %}
+                            <i class="fas fa-film text-info"></i>
+                        {% elif item.type == 'viewable_audio' %}
+                            <i class="fas fa-music text-info"></i>
+                        {% elif item.type == 'document' %}
+                            <i class="fas fa-file text-secondary"></i>
+                        {% elif item.type == 'code' %}
+                            <i class="fas fa-code text-dark"></i>
+                        {% elif item.type == 'archive' %}
+                            <i class="fas fa-archive text-warning"></i>
+                        {% else %}
+                            <i class="fas fa-file text-muted"></i>
                         {% endif %}
                         {{ item.name }}
                     </a>
