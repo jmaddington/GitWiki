@@ -1,0 +1,155 @@
+{% extends "display/base.html" %}
+
+{% block title %}Create New Folder - GitWiki{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <!-- Breadcrumbs -->
+        {% if breadcrumbs %}
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                {% for crumb in breadcrumbs %}
+                <li class="breadcrumb-item {% if forloop.last %}active{% endif %}">
+                    {% if forloop.last %}
+                        {{ crumb.name }}
+                    {% else %}
+                        <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ol>
+        </nav>
+        {% endif %}
+
+        <!-- Page Header -->
+        <div class="wiki-content">
+            <h1><i class="fas fa-folder-plus"></i> Create New Folder</h1>
+            <p class="text-muted">
+                Enter a name for your new folder. A <code>.gitkeep</code> placeholder file will be created to initialize the folder in Git.
+            </p>
+
+            {% if error %}
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle"></i> {{ error }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endif %}
+
+            <!-- New Folder Form -->
+            <form method="post" id="newFolderForm">
+                {% csrf_token %}
+
+                <div class="mb-4">
+                    <label for="folder_name" class="form-label">
+                        <strong><i class="fas fa-folder"></i> Folder Name</strong>
+                    </label>
+                    <div class="input-group">
+                        {% if suggested_path %}
+                        <span class="input-group-text">{{ suggested_path }}/</span>
+                        {% endif %}
+                        <input
+                            type="text"
+                            class="form-control form-control-lg"
+                            id="folder_name"
+                            name="folder_name"
+                            placeholder="{% if suggested_path %}my-folder{% else %}docs{% endif %}"
+                            value="{{ folder_name|default:'' }}"
+                            required
+                            autofocus>
+                    </div>
+                    <div class="form-text">
+                        <i class="fas fa-info-circle"></i>
+                        Examples: <code>guides</code>, <code>tutorials</code>, <code>team-docs</code>, <code>images</code>
+                        <br>
+                        <small class="text-muted">A <code>.gitkeep</code> placeholder file will be created to track the folder in Git.</small>
+                    </div>
+                </div>
+
+                <!-- Preview -->
+                <div class="mb-4">
+                    <label class="form-label">
+                        <strong><i class="fas fa-eye"></i> Preview</strong>
+                    </label>
+                    <div class="alert alert-info">
+                        <i class="fas fa-folder"></i> Folder will be created at:
+                        <code id="pathPreview">
+                            {% if suggested_path %}{{ suggested_path }}/{% endif %}<span id="dynamicPath">my-folder</span>/
+                        </code>
+                        <br>
+                        <i class="fas fa-file"></i> With placeholder:
+                        <code>
+                            {% if suggested_path %}{{ suggested_path }}/{% endif %}<span id="dynamicPathReadme">my-folder</span>/.gitkeep
+                        </code>
+                    </div>
+                </div>
+
+                <!-- Helpful Tips -->
+                <div class="alert alert-light border">
+                    <h5><i class="fas fa-lightbulb text-warning"></i> Tips for Creating Folders</h5>
+                    <ul class="mb-0">
+                        <li>Use hyphens (-) instead of spaces in folder names (e.g., <code>my-folder</code>)</li>
+                        <li>Keep names lowercase for consistency</li>
+                        <li>Use descriptive names that indicate the content category</li>
+                        <li>You can create nested folders (e.g., <code>docs/guides</code>)</li>
+                    </ul>
+                </div>
+
+                <!-- Actions -->
+                <div class="d-flex gap-2 justify-content-end">
+                    <a href="{% if suggested_path %}/wiki/{{ suggested_path }}/{% else %}/{% endif %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-times"></i> Cancel
+                    </a>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="fas fa-folder-plus"></i> Create Folder
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Update preview as user types
+    document.addEventListener('DOMContentLoaded', function() {
+        const folderInput = document.getElementById('folder_name');
+        const dynamicPath = document.getElementById('dynamicPath');
+        const dynamicPathReadme = document.getElementById('dynamicPathReadme');
+        const form = document.getElementById('newFolderForm');
+
+        folderInput.addEventListener('input', function() {
+            let value = this.value.trim();
+            if (value === '') {
+                dynamicPath.textContent = 'my-folder';
+                dynamicPathReadme.textContent = 'my-folder';
+            } else {
+                // Remove trailing slashes
+                value = value.replace(/\/+$/, '');
+                dynamicPath.textContent = value;
+                dynamicPathReadme.textContent = value;
+            }
+        });
+
+        // Validate form before submission
+        form.addEventListener('submit', function(e) {
+            const value = folderInput.value.trim();
+
+            // Check for invalid characters
+            if (value.includes('..') || value.startsWith('/')) {
+                e.preventDefault();
+                alert('Invalid folder name: cannot use ".." or start with "/"');
+                return false;
+            }
+
+            // Check for empty value
+            if (value === '') {
+                e.preventDefault();
+                alert('Please enter a folder name');
+                return false;
+            }
+        });
+    });
+</script>
+{% endblock %}

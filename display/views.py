@@ -170,6 +170,9 @@ def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
                         'path': str(rel_path)
                     })
 
+        # Sort: directories first, then files (alphabetically within each type)
+        items.sort(key=lambda x: (x['type'] != 'directory', x['name'].lower()))
+
         # Cache for 10 minutes (600 seconds)
         cache.set(cache_key, items, 600)
         logger.debug(f'Directory cached for {directory or "root"} [DISPLAY-CACHE04]')
@@ -186,7 +189,10 @@ def wiki_home(request):
     """
     Render wiki home page.
 
-    Shows README.md or directory listing.
+    Priority order:
+    1. README.md if it exists
+    2. If only one markdown file exists, show that file
+    3. Otherwise show directory listing
     """
     try:
         branch = request.GET.get('branch', 'main')
@@ -205,6 +211,7 @@ def wiki_home(request):
                 'metadata': metadata,
                 'breadcrumbs': [{'name': 'Home', 'url': '/'}],
                 'file_path': 'README.md',
+                'parent_path': '',  # Root directory
                 'branch': branch,
                 'toc': metadata.get('toc', '') if metadata else '',
                 'directory_listing': _list_directory('', branch)
@@ -213,20 +220,53 @@ def wiki_home(request):
             logger.info(f'Rendered wiki home for branch {branch} [DISPLAY-HOME01]')
             return render(request, 'display/page.html', context)
 
-        # No README, show directory listing
+        # No README, check if there's exactly one markdown file
+        # If so, show that file; otherwise show directory listing
+        directory_listing = _list_directory('', branch)
+
+        # Find markdown files (not directories)
+        md_files = [item for item in directory_listing if item['type'] == 'file']
+
+        if len(md_files) == 1:
+            # Exactly one markdown file - render it
+            single_file = md_files[0]
+            file_path = single_file['path']
+
+            html_file = static_path / file_path.replace('.md', '.html')
+            if html_file.exists():
+                content = html_file.read_text(encoding='utf-8')
+                metadata = _load_metadata(file_path, branch)
+
+                context = {
+                    'content': content,
+                    'metadata': metadata,
+                    'breadcrumbs': [{'name': 'Home', 'url': '/'}],
+                    'file_path': file_path,
+                    'parent_path': '',  # Root directory
+                    'branch': branch,
+                    'toc': metadata.get('toc', '') if metadata else '',
+                    'directory_listing': directory_listing
+                }
+
+                logger.info(f'Rendered wiki home with single file {file_path} [DISPLAY-HOME02]')
+                return render(request, 'display/page.html', context)
+
+        # Multiple or no markdown files - show directory listing
         context = {
-            'content': '<h1>Wiki Home</h1><p>Welcome to GitWiki!</p>',
+            'content': '<h1>Wiki Home</h1>',
             'breadcrumbs': [{'name': 'Home', 'url': '/'}],
             'file_path': '',
+            'parent_path': '',  # Root directory
             'branch': branch,
-            'directory_listing': _list_directory('', branch)
+            'directory_listing': directory_listing,
+            'is_directory': True
         }
 
-        logger.info(f'Rendered wiki home (directory) for branch {branch} [DISPLAY-HOME02]')
+        logger.info(f'Rendered wiki home (directory) for branch {branch} [DISPLAY-HOME03]')
         return render(request, 'display/page.html', context)
 
     except Exception as e:
-        logger.error(f'Error rendering wiki home: {str(e)} [DISPLAY-HOME03]')
+        logger.error(f'Error rendering wiki home: {str(e)} [DISPLAY-HOME04]')
         raise Http404("Wiki home not found")
 
 
@@ -253,6 +293,7 @@ def wiki_page(request, file_path):
                 'content': f'<h1>{clean_path.split("/")[-1].replace("-", " ").replace("_", " ").title()}</h1>',
                 'breadcrumbs': _get_breadcrumbs(clean_path),
                 'file_path': clean_path,
+                'parent_path': clean_path,  # For directories, parent is itself
                 'branch': branch,
                 'directory_listing': _list_directory(clean_path, branch),
                 'is_directory': True
@@ -287,6 +328,7 @@ def wiki_page(request, file_path):
             'metadata': metadata,
             'breadcrumbs': _get_breadcrumbs(clean_path),
             'file_path': f'{clean_path}.md',
+            'parent_path': parent_dir,  # Parent directory for files
             'branch': branch,
             'toc': metadata.get('toc', '') if metadata else '',
             'directory_listing': directory_listing,
@@ -542,6 +584,113 @@ def new_page(request):
     except Exception as e:
         logger.error(f'Error in new page view: {str(e)} [DISPLAY-NEWPAGE05]')
         raise Http404(f"Error creating page: {str(e)}")
+
+
+@require_http_methods(["GET", "POST"])
+def new_folder(request):
+    """
+    Show form for creating a new folder with a .gitkeep placeholder.
+
+    GET /wiki/new-folder/?path=<optional-parent-directory>
+    POST /wiki/new-folder/ - Creates folder with .gitkeep and redirects to folder view
+    """
+    try:
+        # Get suggested path from query parameter
+        suggested_path = request.GET.get('path', '').strip('/')
+
+        if request.method == 'POST':
+            # Get the folder name from form submission
+            folder_name = request.POST.get('folder_name', '').strip().strip('/')
+
+            # Validate folder name
+            if not folder_name:
+                context = {
+                    'error': 'Please enter a folder name',
+                    'suggested_path': suggested_path,
+                    'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Folder', 'url': '/wiki/new-folder/'}]
+                }
+                logger.warning('New folder creation failed: empty name [DISPLAY-NEWFOLDER01]')
+                return render(request, 'display/new_folder.html', context)
+
+            # Validate folder name doesn't try to escape wiki directory
+            if '..' in folder_name or folder_name.startswith('/'):
+                context = {
+                    'error': 'Invalid folder name: cannot use ".." or start with "/"',
+                    'folder_name': folder_name,
+                    'suggested_path': suggested_path,
+                    'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Folder', 'url': '/wiki/new-folder/'}]
+                }
+                logger.warning(f'New folder creation failed: invalid name {folder_name} [DISPLAY-NEWFOLDER02]')
+                return render(request, 'display/new_folder.html', context)
+
+            # Build full path for .gitkeep in the new folder
+            if suggested_path:
+                folder_path = f'{suggested_path}/{folder_name}'
+                file_path = f'{suggested_path}/{folder_name}/.gitkeep'
+            else:
+                folder_path = folder_name
+                file_path = f'{folder_name}/.gitkeep'
+
+            # Create .gitkeep file through git operations
+            from git_service.git_operations import get_repository
+            repo = get_repository()
+
+            try:
+                # Get user ID or use 0 for anonymous
+                user_id = request.user.id if request.user.is_authenticated else 0
+                user_info = {
+                    'name': request.user.username if request.user.is_authenticated else 'anonymous',
+                    'email': request.user.email if request.user.is_authenticated else 'anonymous@gitwiki.local'
+                }
+
+                # Create draft branch
+                branch_result = repo.create_draft_branch(user_id=user_id, user=request.user if request.user.is_authenticated else None)
+                branch_name = branch_result['branch_name']
+
+                # Commit the .gitkeep (this also writes the file)
+                repo.commit_changes(
+                    branch_name=branch_name,
+                    file_path=file_path,
+                    content='',
+                    commit_message=f'Create folder: {folder_path}',
+                    user_info=user_info,
+                    user=request.user if request.user.is_authenticated else None,
+                    is_binary=False
+                )
+
+                # Publish to main
+                repo.publish_draft(
+                    branch_name=branch_name,
+                    user=request.user if request.user.is_authenticated else None
+                )
+
+                logger.info(f'Created folder with .gitkeep: {folder_path} [DISPLAY-NEWFOLDER03]')
+
+                # Redirect to the new folder view
+                return redirect(f'/wiki/{folder_path}/')
+
+            except Exception as e:
+                logger.error(f'Failed to create .gitkeep file: {str(e)} [DISPLAY-NEWFOLDER06]')
+                context = {
+                    'error': f'Failed to create folder: {str(e)}',
+                    'folder_name': folder_name,
+                    'suggested_path': suggested_path,
+                    'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Folder', 'url': '/wiki/new-folder/'}]
+                }
+                return render(request, 'display/new_folder.html', context)
+
+        # GET request - show form
+        context = {
+            'suggested_path': suggested_path,
+            'breadcrumbs': [{'name': 'Home', 'url': '/'}, {'name': 'New Folder', 'url': '/wiki/new-folder/'}]
+        }
+
+        logger.info(f'Displaying new folder form (suggested path: {suggested_path or "none"}) [DISPLAY-NEWFOLDER04]')
+        return render(request, 'display/new_folder.html', context)
+
+    except Exception as e:
+        logger.error(f'Error in new folder view: {str(e)} [DISPLAY-NEWFOLDER05]')
+        raise Http404(f"Error creating folder: {str(e)}")
 
 
 # Error Handlers

@@ -16,6 +16,9 @@ urlpatterns = [
     # New page creation
     path('new/', views.new_page, name='new-page'),
 
+    # New folder creation
+    path('new-folder/', views.new_folder, name='new-folder'),
+
     # Search
     path('search/', views.wiki_search, name='search'),
 
