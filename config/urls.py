@@ -18,6 +18,7 @@ Including another URLconf
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path, include
+from django.views.generic import RedirectView
 from config.health import health_check, readiness_check, liveness_check
 
 urlpatterns = [
@@ -35,7 +36,8 @@ urlpatterns = [
     path("api/git/", include('git_service.urls')),
     path("editor/", include('editor.urls')),
     path("wiki/", include('display.urls')),  # Wiki pages
-    path("", include('display.urls')),  # Home page at root (catch-all, must be last)
+    # Redirect root to wiki home (must be last)
+    path("", RedirectView.as_view(url='/wiki/', permanent=False), name='root-redirect'),
 ]
 
 # Error Handlers
