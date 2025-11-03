@@ -185,25 +185,16 @@ def sync_management(request):
 
         elif action == 'rebuild_static':
             try:
-                # Import here to avoid circular imports
-                from .tasks import full_static_rebuild_task
-
-                # Queue task (or run directly if Celery not available)
-                try:
-                    result = full_static_rebuild_task.delay()
-                    messages.info(request, f"Static rebuild started. Task ID: {result.id}")
-                    logger.info(f'Static rebuild task queued: {result.id} [SYNC-04]')
-                except Exception:
-                    # Celery not available, run directly
-                    repo = get_repository()
-                    result = repo.full_static_rebuild()
-                    messages.success(request, f"Static rebuild completed. {result['branches_regenerated']} branches regenerated.")
-                    logger.info(f'Static rebuild completed: {result} [SYNC-05]')
-                    cache.set('last_static_rebuild_time', datetime.now().isoformat(), None)
+                # Run rebuild synchronously
+                repo = get_repository()
+                result = repo.full_static_rebuild()
+                messages.success(request, f"Static rebuild completed. {result['branches_regenerated']} branches regenerated.")
+                logger.info(f'Static rebuild completed: {result} [SYNC-04]')
+                cache.set('last_static_rebuild_time', datetime.now().isoformat(), None)
 
             except Exception as e:
                 messages.error(request, f"Rebuild failed: {str(e)}")
-                logger.error(f'Static rebuild failed: {str(e)} [SYNC-06]')
+                logger.error(f'Static rebuild failed: {str(e)} [SYNC-05]')
 
         elif action == 'cleanup_branches':
             try:

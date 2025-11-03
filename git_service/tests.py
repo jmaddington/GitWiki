@@ -200,7 +200,17 @@ class GitRepositoryTest(TestCase):
 
     def test_get_conflicts_with_conflict(self):
         """Test get_conflicts detects actual conflicts."""
-        # Create branch 1 and commit to a file
+        # Start with a base file on main
+        self.repo.commit_changes(
+            branch_name='main',
+            file_path='conflict.md',
+            content='# Original\nBase content',
+            commit_message='Initial version',
+            user_info={'name': 'Admin', 'email': 'admin@example.com'},
+            user=self.user
+        )
+
+        # Create branch 1 and modify the file
         branch1 = self.repo.create_draft_branch(user_id=1, user=self.user)['branch_name']
         self.repo.commit_changes(
             branch_name=branch1,
@@ -211,28 +221,24 @@ class GitRepositoryTest(TestCase):
             user=self.user
         )
 
-        # Publish branch 1 to main
-        self.repo.publish_draft(branch_name=branch1, user=self.user, auto_push=False)
-
-        # Create branch 2 and commit to same file with different content
-        branch2 = self.repo.create_draft_branch(user_id=2, user=self.user)['branch_name']
+        # Modify main (creating the conflict)
         self.repo.commit_changes(
-            branch_name=branch2,
+            branch_name='main',
             file_path='conflict.md',
-            content='# Version 2\nContent from user 2',
-            commit_message='User 2 edit',
-            user_info={'name': 'User 2', 'email': 'user2@example.com'},
+            content='# Version Main\nContent from main',
+            commit_message='Main edit',
+            user_info={'name': 'Admin', 'email': 'admin@example.com'},
             user=self.user
         )
 
-        # Now branch2 should have a conflict with main
+        # Now branch1 should have a conflict with main
         conflicts_data = self.repo.get_conflicts()
 
         self.assertEqual(len(conflicts_data['conflicts']), 1)
         conflict = conflicts_data['conflicts'][0]
-        self.assertEqual(conflict['branch_name'], branch2)
+        self.assertEqual(conflict['branch_name'], branch1)
         self.assertIn('conflict.md', conflict['file_paths'])
-        self.assertEqual(conflict['user_id'], 2)
+        self.assertEqual(conflict['user_id'], 1)
 
     def test_get_conflict_versions(self):
         """Test extracting three-way diff versions."""

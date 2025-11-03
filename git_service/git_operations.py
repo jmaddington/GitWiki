@@ -263,7 +263,11 @@ class GitRepository:
 
             # Invalidate caches for this file
             from config.cache_utils import invalidate_file_cache
+            from django.core.cache import cache
             invalidate_file_cache(branch_name, file_path)
+
+            # Invalidate conflicts cache since branch state changed
+            cache.delete('git_conflicts_list')
 
             return {
                 'success': True,
@@ -313,8 +317,8 @@ class GitRepository:
                 self.repo.git.merge(branch_name, no_commit=True, no_ff=True)
 
                 # If we get here, no conflicts
-                # Abort the merge to keep repo clean
-                self.repo.git.merge('--abort')
+                # Reset to undo staging changes (--no-commit doesn't create MERGE_HEAD)
+                self.repo.git.reset('--hard', 'HEAD')
 
                 # Return to original branch
                 if current_branch != 'main':
@@ -331,12 +335,18 @@ class GitRepository:
                         # Parse unmerged files
                         unmerged = self.repo.index.unmerged_blobs()
                         conflicts = list(unmerged.keys())
-                    except Exception:
+                    except Exception as ex:
                         # If we can't get specific files, just note there are conflicts
+                        logger.warning(f'Failed to get unmerged blobs: {ex} [GITOPS-CONFLICT15]')
                         conflicts = ['unknown']
 
-                    # Abort the merge
-                    self.repo.git.merge('--abort')
+                    # Abort the merge (safe to use here as CONFLICT creates MERGE_HEAD)
+                    try:
+                        self.repo.git.merge('--abort')
+                    except GitCommandError as abort_error:
+                        # If abort fails, reset as fallback
+                        logger.warning(f'Merge abort failed, using reset instead: {abort_error} [GITOPS-CONFLICT02]')
+                        self.repo.git.reset('--hard', 'HEAD')
 
                     # Return to original branch
                     if current_branch != 'main':
@@ -344,8 +354,12 @@ class GitRepository:
 
                     return True, conflicts
                 else:
-                    # Different error, re-raise
-                    self.repo.git.merge('--abort')
+                    # Different error - try abort first, fallback to reset
+                    try:
+                        self.repo.git.merge('--abort')
+                    except GitCommandError:
+                        self.repo.git.reset('--hard', 'HEAD')
+
                     if current_branch != 'main':
                         self.repo.heads[current_branch].checkout()
                     raise
@@ -447,8 +461,12 @@ class GitRepository:
 
                 # Invalidate caches for main branch
                 from config.cache_utils import invalidate_branch_cache, invalidate_search_cache
+                from django.core.cache import cache
                 invalidate_branch_cache('main')
                 invalidate_search_cache('main')
+
+                # Invalidate conflicts cache since main branch changed
+                cache.delete('git_conflicts_list')
 
             except Exception as e:
                 logger.warning(f'Static generation failed after merge: {str(e)} [GITOPS-PUBLISH05]')
@@ -811,20 +829,28 @@ class GitRepository:
             files_written = 0
             markdown_files = []
 
-            # Copy all files from repository
-            for item in self.repo_path.rglob('*'):
-                if item.is_file() and '.git' not in str(item):
+            # Copy all files from repository (including hidden files like .gitkeep)
+            def copy_tree(src, dst):
+                """Recursively copy directory tree including hidden files."""
+                nonlocal files_written
+                for item in src.iterdir():
+                    if item.name == '.git':
+                        continue
+
                     rel_path = item.relative_to(self.repo_path)
-                    dest_path = temp_dir / rel_path
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    dest_item = dst / item.name
 
-                    # Copy file
-                    shutil.copy2(item, dest_path)
-                    files_written += 1
+                    if item.is_dir():
+                        dest_item.mkdir(exist_ok=True)
+                        copy_tree(item, dest_item)
+                    else:
+                        shutil.copy2(item, dest_item)
+                        files_written += 1
+                        # Track markdown files for HTML generation
+                        if item.suffix == '.md':
+                            markdown_files.append(str(rel_path))
 
-                    # Track markdown files for HTML generation
-                    if item.suffix == '.md':
-                        markdown_files.append(str(rel_path))
+            copy_tree(self.repo_path, temp_dir)
 
             # Generate HTML and metadata for markdown files
             for md_file in markdown_files:
