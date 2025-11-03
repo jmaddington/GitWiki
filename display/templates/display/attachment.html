@@ -1,0 +1,167 @@
+{% extends "display/base.html" %}
+
+{% block title %}{{ file_name }} - GitWiki{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="row">
+    <div class="col-12">
+        <!-- Breadcrumbs -->
+        {% if breadcrumbs %}
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                {% for crumb in breadcrumbs %}
+                <li class="breadcrumb-item {% if forloop.last %}active{% endif %}">
+                    {% if forloop.last %}
+                        {{ crumb.name }}
+                    {% else %}
+                        <a href="{{ crumb.url }}">{{ crumb.name }}</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ol>
+        </nav>
+        {% endif %}
+
+        <!-- Page Header -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2>
+                <i class="{{ file_icon }}"></i> {{ file_name }}
+            </h2>
+            <div class="btn-group" role="group">
+                <a href="{{ file_url }}?download" class="btn btn-primary">
+                    <i class="fas fa-download"></i> Download
+                </a>
+                <button type="button" class="btn btn-danger" id="btn-delete-file">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                {% if parent_path %}
+                <a href="/wiki/{{ parent_path }}/" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Folder
+                </a>
+                {% else %}
+                <a href="/" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Home
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- File Information -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">File Information</h5>
+                <table class="table table-sm">
+                    <tbody>
+                        <tr>
+                            <th style="width: 150px;">File Name:</th>
+                            <td>{{ file_name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Size:</th>
+                            <td>{{ file_size }} ({{ file_size_bytes|filesizeformat }})</td>
+                        </tr>
+                        <tr>
+                            <th>Type:</th>
+                            <td>{{ content_type }}</td>
+                        </tr>
+                        <tr>
+                            <th>Path:</th>
+                            <td><code>{{ file_path }}</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- File Preview -->
+        {% if can_preview %}
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Preview</h5>
+                <div class="file-preview">
+                    {% if content_type|slice:":6" == "image/" %}
+                        <img src="{{ file_url }}" alt="{{ file_name }}" class="img-fluid" style="max-width: 100%; height: auto;">
+                    {% elif content_type|slice:":6" == "video/" %}
+                        <video controls style="max-width: 100%; height: auto;">
+                            <source src="{{ file_url }}" type="{{ content_type }}">
+                            Your browser does not support the video tag.
+                        </video>
+                    {% elif content_type|slice:":6" == "audio/" %}
+                        <audio controls style="width: 100%;">
+                            <source src="{{ file_url }}" type="{{ content_type }}">
+                            Your browser does not support the audio tag.
+                        </audio>
+                    {% elif content_type == "application/pdf" %}
+                        <iframe src="{{ file_url }}" style="width: 100%; height: 800px; border: 1px solid #ddd;"></iframe>
+                    {% elif content_type|slice:":5" == "text/" %}
+                        <iframe src="{{ file_url }}" style="width: 100%; height: 600px; border: 1px solid #ddd;"></iframe>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            This file type cannot be previewed in the browser. Please download it to view.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Delete file button handler
+    const deleteBtn = document.getElementById('btn-delete-file');
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async function() {
+            // Confirm deletion
+            if (!confirm('Are you sure you want to delete "{{ file_name }}"? This will commit the deletion to the repository.')) {
+                return;
+            }
+
+            // Show loading state
+            deleteBtn.disabled = true;
+            deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+
+            try {
+                const response = await fetch('/editor/api/delete-file/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({
+                        user_id: 1,  // Default user
+                        file_path: '{{ file_path }}',
+                        commit_message: 'Delete {{ file_name }}'
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('File deleted successfully!');
+                    // Redirect to parent folder or home
+                    {% if parent_path %}
+                    window.location.href = '/wiki/{{ parent_path }}/';
+                    {% else %}
+                    window.location.href = '/';
+                    {% endif %}
+                } else {
+                    alert('Failed to delete file: ' + (result.error?.message || 'Unknown error'));
+                    deleteBtn.disabled = false;
+                    deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                alert('Failed to delete file: ' + error.message);
+                deleteBtn.disabled = false;
+                deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
+            }
+        });
+    }
+</script>
+{% endblock %}

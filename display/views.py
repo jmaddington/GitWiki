@@ -249,13 +249,9 @@ def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
                 rel_path = item.relative_to(static_path)
                 file_size = item.stat().st_size
 
-                # Build URL based on file category
-                if file_info['category'] in ['viewable_image', 'viewable_video', 'viewable_audio']:
-                    # Viewable files - link to file serving view
-                    file_url = f'/wiki/file/{directory}/{item.name}' if directory else f'/wiki/file/{item.name}'
-                else:
-                    # Downloadable files - link to file serving view with download flag
-                    file_url = f'/wiki/file/{directory}/{item.name}?download=1' if directory else f'/wiki/file/{item.name}?download=1'
+                # Link to attachment page for all non-markdown files
+                # This allows viewing file details, preview, download, and delete
+                file_url = f'/wiki/attachment/{directory}/{item.name}' if directory else f'/wiki/attachment/{item.name}'
 
                 items.append({
                     'name': item.name,
@@ -814,6 +810,107 @@ def new_folder(request):
 
 
 @require_http_methods(["GET"])
+def attachment_page(request, file_path):
+    """
+    Display an attachment page with file preview, download, and delete options.
+
+    AIDEV-NOTE: attachment-page; Shows file details with preview and management options
+
+    Args:
+        file_path: Path to file relative to wiki root
+
+    Query params:
+        branch: Branch to view from (default: main)
+    """
+    import mimetypes
+    import os
+
+    try:
+        branch = request.GET.get('branch', 'main')
+
+        # Clean up path and validate
+        clean_path = file_path.strip('/')
+
+        # Prevent directory traversal
+        if '..' in clean_path or clean_path.startswith('/'):
+            logger.warning(f'Invalid file path requested: {clean_path} [DISPLAY-ATTACH01]')
+            raise Http404("Invalid file path")
+
+        # Get file from repository
+        from git_service.git_operations import get_repository, GitRepositoryError
+
+        repo = get_repository()
+        repo_path = repo.repo_path / clean_path
+
+        # Check file exists and is not a directory
+        if not repo_path.exists():
+            logger.warning(f'File not found: {clean_path} [DISPLAY-ATTACH02]')
+            raise Http404(f"File not found: {clean_path}")
+
+        if repo_path.is_dir():
+            logger.warning(f'Attempted to view directory as attachment: {clean_path} [DISPLAY-ATTACH03]')
+            raise Http404("Cannot view directory as attachment")
+
+        # Prevent viewing hidden files
+        if any(part.startswith('.') for part in repo_path.parts):
+            logger.warning(f'Attempted to view hidden file: {clean_path} [DISPLAY-ATTACH04]')
+            raise Http404("Cannot view hidden files")
+
+        # Get file info
+        file_size = repo_path.stat().st_size
+        file_name = repo_path.name
+        file_size_formatted = _format_file_size(file_size)
+
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(repo_path)
+        if content_type is None:
+            content_type = 'application/octet-stream'
+
+        # Classify file type
+        file_type_info = _classify_file_type(repo_path)
+        file_type = file_type_info['category']
+        file_icon = file_type_info['icon']
+
+        # Determine if file can be previewed in browser
+        can_preview = content_type.startswith(('image/', 'video/', 'audio/', 'text/plain', 'application/pdf'))
+
+        # Get breadcrumbs
+        breadcrumbs = _get_breadcrumbs(clean_path)
+
+        # Get parent path for navigation
+        parent_path = str(Path(clean_path).parent)
+        if parent_path == '.':
+            parent_path = ''
+
+        # Get file URL for preview
+        file_url = f'/wiki/files/{clean_path}'
+
+        logger.info(f'Displaying attachment page for {clean_path} [DISPLAY-ATTACH05]')
+
+        context = {
+            'file_path': clean_path,
+            'file_name': file_name,
+            'file_size': file_size_formatted,
+            'file_size_bytes': file_size,
+            'content_type': content_type,
+            'file_type': file_type,
+            'file_icon': file_icon,
+            'can_preview': can_preview,
+            'file_url': file_url,
+            'breadcrumbs': breadcrumbs,
+            'parent_path': parent_path,
+            'branch': branch
+        }
+
+        return render(request, 'display/attachment.html', context)
+
+    except Http404:
+        raise
+    except Exception as e:
+        logger.error(f'Error displaying attachment page for {file_path}: {str(e)} [DISPLAY-ATTACH06]')
+        raise Http404(f"Error loading attachment: {str(e)}")
+
+
 def serve_file(request, file_path):
     """
     Serve static files (images, videos, documents) from the wiki.

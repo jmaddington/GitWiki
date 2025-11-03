@@ -86,3 +86,68 @@ class UploadImageSerializer(serializers.Serializer):
             )
 
         return value
+
+
+class UploadFileSerializer(serializers.Serializer):
+    """Serializer for arbitrary file upload."""
+    session_id = serializers.IntegerField(required=True, min_value=1)
+    file = serializers.FileField(required=True)
+    description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+
+    def validate_file(self, value):
+        """Validate file size (any file type allowed)."""
+        # AIDEV-NOTE: arbitrary-file-upload; Allow any file type up to 100MB
+        max_size_mb = 100
+        max_size_bytes = max_size_mb * 1024 * 1024
+
+        # Check file size
+        if value.size > max_size_bytes:
+            raise serializers.ValidationError(
+                f"File too large. Maximum size: {max_size_mb}MB"
+            )
+
+        return value
+
+
+class QuickUploadFileSerializer(serializers.Serializer):
+    """Serializer for quick file upload without edit session."""
+    user_id = serializers.IntegerField(required=True, min_value=1)
+    file = serializers.FileField(required=True)
+    target_path = serializers.CharField(required=False, allow_blank=True, max_length=512, default="files")
+    description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+
+    def validate_file(self, value):
+        """Validate file size (any file type allowed)."""
+        # AIDEV-NOTE: quick-file-upload; Allow any file type up to 100MB
+        max_size_mb = 100
+        max_size_bytes = max_size_mb * 1024 * 1024
+
+        if value.size > max_size_bytes:
+            raise serializers.ValidationError(
+                f"File too large. Maximum size: {max_size_mb}MB"
+            )
+
+        return value
+
+    def validate_target_path(self, value):
+        """Validate target path is safe."""
+        # AIDEV-NOTE: path-validation; Prevent directory traversal attacks
+        if '..' in value or value.startswith('/'):
+            raise serializers.ValidationError("Invalid path: no absolute paths or parent directory references allowed")
+
+        return value
+
+
+class DeleteFileSerializer(serializers.Serializer):
+    """Serializer for file deletion."""
+    user_id = serializers.IntegerField(required=True, min_value=1)
+    file_path = serializers.CharField(required=True, max_length=1024)
+    commit_message = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+    def validate_file_path(self, value):
+        """Validate file path is safe."""
+        # AIDEV-NOTE: path-validation; Prevent directory traversal attacks
+        if '..' in value or value.startswith('/'):
+            raise serializers.ValidationError("Invalid file path: no absolute paths or parent directory references allowed")
+
+        return value

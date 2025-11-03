@@ -217,8 +217,9 @@ class GitRepository:
             if not self._has_branch(branch_name):
                 raise GitRepositoryError(f"Branch {branch_name} does not exist")
 
-            # Checkout branch
-            self.repo.heads[branch_name].checkout()
+            # Checkout branch if not already on it
+            if self.repo.active_branch.name != branch_name:
+                self.repo.heads[branch_name].checkout()
 
             # Write file content (skip if binary file already on disk)
             full_path = self.repo_path / file_path
@@ -291,6 +292,117 @@ class GitRepository:
             )
 
             logger.error(f'{error_msg} [GITOPS-COMMIT02]')
+            raise GitRepositoryError(error_msg)
+
+    def delete_file(
+        self,
+        file_path: str,
+        commit_message: str,
+        user_info: Dict[str, str],
+        user: Optional[User] = None,
+        branch_name: str = 'main'
+    ) -> Dict:
+        """
+        Delete a file from the repository.
+
+        Args:
+            file_path: Relative path to file in repository
+            commit_message: Commit message for the deletion
+            user_info: Dict with 'name' and 'email' keys
+            user: Optional User instance for logging
+            branch_name: Branch to delete from (defaults to 'main')
+
+        Returns:
+            Dict with commit_hash and success status
+
+        Raises:
+            GitRepositoryError: If deletion fails
+
+        AIDEV-NOTE: file-deletion; Removes file from repository and commits the deletion
+        """
+        start_time = time.time()
+
+        try:
+            # Validate branch exists
+            if not self._has_branch(branch_name):
+                raise GitRepositoryError(f"Branch {branch_name} does not exist")
+
+            # Check file exists
+            full_path = self.repo_path / file_path
+            if not full_path.exists():
+                raise GitRepositoryError(f"File not found: {file_path}")
+
+            # Checkout branch if not already on it
+            if self.repo.active_branch.name != branch_name:
+                self.repo.heads[branch_name].checkout()
+
+            # Remove file from filesystem
+            full_path.unlink()
+
+            # Stage deletion
+            self.repo.index.remove([file_path])
+
+            # Configure author
+            actor = git.Actor(user_info.get('name', 'Unknown'), user_info.get('email', 'unknown@example.com'))
+
+            # Commit
+            commit = self.repo.index.commit(commit_message, author=actor, committer=actor)
+            commit_hash = commit.hexsha
+
+            execution_time = int((time.time() - start_time) * 1000)
+
+            # Log operation
+            GitOperation.log_operation(
+                operation_type='delete',
+                user=user,
+                branch_name=branch_name,
+                file_path=file_path,
+                request_params={
+                    'commit_message': commit_message,
+                    'user_info': user_info
+                },
+                response_code=200,
+                success=True,
+                git_output=f'Deleted file, committed {commit_hash[:8]}',
+                execution_time_ms=execution_time
+            )
+
+            logger.info(f'Deleted {file_path} from {branch_name}: {commit_hash[:8]} [GITOPS-DELETE01]')
+
+            # Invalidate caches for this file
+            from config.cache_utils import invalidate_file_cache
+            from django.core.cache import cache
+            invalidate_file_cache(branch_name, file_path)
+
+            # Invalidate directory cache for parent directory
+            parent_path = str(Path(file_path).parent)
+            if parent_path == '.':
+                parent_path = ''
+            cache.delete(f'directory_listing_{branch_name}_{parent_path}')
+            cache.delete(f'metadata_{branch_name}_{parent_path}')
+
+            return {
+                'success': True,
+                'commit_hash': commit_hash
+            }
+
+        except Exception as e:
+            execution_time = int((time.time() - start_time) * 1000)
+            error_msg = f'Failed to delete file: {str(e)}'
+
+            GitOperation.log_operation(
+                operation_type='delete',
+                user=user,
+                branch_name=branch_name,
+                file_path=file_path,
+                request_params={'commit_message': commit_message},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=execution_time
+            )
+
+            logger.error(f'{error_msg} [GITOPS-DELETE02]')
             raise GitRepositoryError(error_msg)
 
     def _check_merge_conflicts(self, branch_name: str) -> Tuple[bool, List[str]]:

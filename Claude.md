@@ -54,6 +54,7 @@ Git Service:
 - `dry-run-merge` (git_operations.py:271) - Uses --no-commit to test merge without modifying repo
 - `binary-files` (git_operations.py:205) - is_binary flag for images/binary files already on disk
 - `binary-files-read` (git_operations.py:528) - Read binary files (images, PDFs) without text encoding
+- `file-deletion` (git_operations.py:320) - Removes file from repository and commits the deletion
 - `file-history` (git_operations.py:543) - Used for page history display
 - `markdown-conversion` (git_operations.py:674) - Uses markdown library with extensions for tables, code, TOC
 - `markdown-cache` (git_operations.py:675) - Caches rendered HTML for 30 minutes using content hash
@@ -77,15 +78,23 @@ Editor Service:
 - `session-tracking` (editor/models.py:13) - Maps users to their draft branches
 - `branch-recreation` (editor/api.py:43) - Automatically recreates missing draft branches to preserve user work
 - `editor-serializers` (editor/serializers.py:5) - Validation for all editor API endpoints
+- `file-delete-api` (editor/api.py:1129) - Deletes files from main branch and triggers static rebuild
 - `path-validation` (editor/serializers.py:16) - Prevent directory traversal attacks
 - `editor-api` (editor/api.py:10) - REST API for markdown editing workflow
 - `image-path-structure` (editor/api.py:539) - Images stored in images/{branch_name}/
+- `file-path-structure` (editor/api.py:705) - Arbitrary files stored in files/{branch_name}/
+- `arbitrary-file-upload` (editor/serializers.py:99) - Allow any file type up to 100MB
+- `quick-file-upload` (editor/serializers.py:121) - Quick upload without session to main branch
+- `quick-upload-path` (editor/api.py:822) - Files uploaded to target_path (current directory)
+- `binary-detection` (editor/api.py:710) - Text vs binary file detection
+- `rebuild-after-upload` (editor/api.py:867) - Partial rebuild for directory listings (incremental-rebuild)
 - `editor-views` (editor/views.py:4) - UI views for markdown editing
 - `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
 - `editor-tests` (editor/tests.py:4) - Tests for editing workflow, sessions, API endpoints, and conflict resolution
 
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
+- `attachment-page` (display/views.py:821) - Shows file details with preview and management options
 - `metadata-cache` (display/views.py:42) - Caches metadata for 1 hour to reduce disk I/O
 - `directory-cache` (display/views.py:120) - Caches directory listings for 10 minutes
 - `search-cache` (display/views.py:311) - Caches search results for 5 minutes to reduce file I/O
@@ -135,6 +144,7 @@ Git Service:
 - GITOPS-PARTIAL01 through GITOPS-PARTIAL23 (incremental static file regeneration)
 - GITOPS-FOLDER01, GITOPS-FOLDER02, GITOPS-FOLDER03, GITOPS-FOLDER04 (folder creation optimization)
 - GITOPS-PUBLISH06, GITOPS-PUBLISH07, GITOPS-PUBLISH08 (async rebuild queuing in publish)
+- GITOPS-DELETE01, GITOPS-DELETE02 (file deletion)
 - API-BRANCH01, API-BRANCH02, API-BRANCH-VAL01
 - API-COMMIT01, API-COMMIT02, API-COMMIT-VAL01
 - API-PUBLISH01, API-PUBLISH02, API-PUBLISH03, API-PUBLISH-VAL01, API-PUBLISH-CONFLICT
@@ -158,10 +168,15 @@ Editor Service:
 - EDITOR-COMMIT01, EDITOR-COMMIT02, EDITOR-COMMIT03, EDITOR-COMMIT-VAL01, EDITOR-COMMIT-NOTFOUND, EDITOR-COMMIT-INVALID, EDITOR-COMMIT-BRANCH-MISSING
 - EDITOR-PUBLISH01, EDITOR-PUBLISH02, EDITOR-PUBLISH03, EDITOR-PUBLISH04, EDITOR-PUBLISH-VAL01, EDITOR-PUBLISH-NOTFOUND, EDITOR-PUBLISH-CONFLICT, EDITOR-PUBLISH-COMMIT01, EDITOR-PUBLISH-COMMIT02, EDITOR-PUBLISH-COMMIT03, EDITOR-PUBLISH-BRANCH-MISSING
 - EDITOR-UPLOAD01, EDITOR-UPLOAD02, EDITOR-UPLOAD03, EDITOR-UPLOAD-VAL01, EDITOR-UPLOAD-NOTFOUND
+- EDITOR-UPLOAD-FILE01, EDITOR-UPLOAD-FILE02, EDITOR-UPLOAD-FILE03, EDITOR-UPLOAD-FILE-VAL01, EDITOR-UPLOAD-FILE-NOTFOUND (arbitrary file upload with session)
+- EDITOR-QUICK-UPLOAD01, EDITOR-QUICK-UPLOAD02, EDITOR-QUICK-UPLOAD-VAL01 (quick file upload without session, commits to main)
+- EDITOR-QUICK-UPLOAD-REBUILD01, EDITOR-QUICK-UPLOAD-REBUILD02, EDITOR-QUICK-UPLOAD-REBUILD03 (static rebuild after quick upload)
 - EDITOR-VALIDATE-VAL01
 - EDITOR-VIEW01, EDITOR-VIEW02, EDITOR-VIEW03, EDITOR-VIEW04, EDITOR-VIEW05, EDITOR-VIEW06, EDITOR-VIEW07, EDITOR-VIEW08, EDITOR-VIEW09
 - EDITOR-CONFLICT01, EDITOR-CONFLICT02, EDITOR-CONFLICT03, EDITOR-CONFLICT04, EDITOR-CONFLICT05, EDITOR-CONFLICT06, EDITOR-CONFLICT07, EDITOR-CONFLICT08, EDITOR-CONFLICT09, EDITOR-CONFLICT-NOTFOUND, EDITOR-CONFLICT-PARTIAL, EDITOR-CONFLICT-BIN01
 - EDITOR-RESOLVE-VAL01
+- EDITOR-DELETE01, EDITOR-DELETE03, EDITOR-DELETE04, EDITOR-DELETE-VAL01, EDITOR-DELETE-NOTFOUND (file deletion)
+- EDITOR-DELETE-REBUILD01, EDITOR-DELETE-REBUILD02, EDITOR-DELETE-REBUILD03, EDITOR-DELETE-REBUILD04, EDITOR-DELETE-REBUILD05 (rebuild after deletion)
 - MIGRATION-CLEANUP01, MIGRATION-CLEANUP02, MIGRATION-CLEANUP03, MIGRATION-CLEANUP04, MIGRATION-CLEANUP05
 
 Display Service:
@@ -173,6 +188,7 @@ Display Service:
 - DISPLAY-HISTORY01, DISPLAY-HISTORY02
 - DISPLAY-NEWPAGE01, DISPLAY-NEWPAGE02, DISPLAY-NEWPAGE03, DISPLAY-NEWPAGE04, DISPLAY-NEWPAGE05
 - DISPLAY-NEWFOLDER01, DISPLAY-NEWFOLDER02, DISPLAY-NEWFOLDER03, DISPLAY-NEWFOLDER04, DISPLAY-NEWFOLDER05, DISPLAY-NEWFOLDER06, DISPLAY-NEWFOLDER07, DISPLAY-NEWFOLDER08 (optimized folder creation)
+- DISPLAY-ATTACH01, DISPLAY-ATTACH02, DISPLAY-ATTACH03, DISPLAY-ATTACH04, DISPLAY-ATTACH05, DISPLAY-ATTACH06 (attachment page for file preview and management)
 - DISPLAY-CACHE01, DISPLAY-CACHE02, DISPLAY-CACHE03, DISPLAY-CACHE04, DISPLAY-CACHE05, DISPLAY-CACHE06, DISPLAY-CACHE07, DISPLAY-CACHE08
 
 Cache Utilities (Phase 7):
