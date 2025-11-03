@@ -9,7 +9,8 @@ services:
 
     volumes:
       - ..:/workspace:cached
-      - ../wiki-repo:/app/wiki-repo:cached
+      - ../wiki-repo:/workspace/wiki-repo:cached
+      - ../static_wiki:/workspace/static_wiki:cached
 
     command: sleep infinity
 
@@ -24,37 +25,11 @@ services:
       - ../.env.devcontainer
 
     depends_on:
-      - db
       - redis
 
     networks:
       - gitwiki-network
-
-  # PostgreSQL database
-  db:
-    image: postgres:15-alpine
-    restart: unless-stopped
-
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
-    environment:
-      POSTGRES_USER: gitwiki
-      POSTGRES_PASSWORD: gitwiki
-      POSTGRES_DB: gitwiki
-
-    ports:
-      - "5432:5432"
-
-    networks:
-      - gitwiki-network
-
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gitwiki"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+      
   # Redis for Celery broker and Django cache
   redis:
     image: redis:7-alpine
@@ -62,9 +37,6 @@ services:
 
     volumes:
       - redis-data:/data
-
-    ports:
-      - "6379:6379"
 
     networks:
       - gitwiki-network
@@ -81,11 +53,12 @@ services:
       context: ..
       dockerfile: .devcontainer/Dockerfile
 
-    command: celery -A config worker --loglevel=info
+    command: celery -A config worker --loglevel=info --autoreload
 
     volumes:
       - ..:/workspace:cached
-      - ../wiki-repo:/app/wiki-repo:cached
+      - ../wiki-repo:/workspace/wiki-repo:cached
+      - ../static_wiki:/workspace/static_wiki:cached
 
     environment:
       - PYTHONUNBUFFERED=1
@@ -95,7 +68,6 @@ services:
       - ../.env.devcontainer
 
     depends_on:
-      - db
       - redis
 
     networks:
@@ -109,11 +81,12 @@ services:
       context: ..
       dockerfile: .devcontainer/Dockerfile
 
-    command: celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    command: celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler --autoreload
 
     volumes:
       - ..:/workspace:cached
-      - ../wiki-repo:/app/wiki-repo:cached
+      - ../wiki-repo:/workspace/wiki-repo:cached
+      - ../static_wiki:/workspace/static_wiki:cached
 
     environment:
       - PYTHONUNBUFFERED=1
@@ -123,7 +96,6 @@ services:
       - ../.env.devcontainer
 
     depends_on:
-      - db
       - redis
 
     networks:

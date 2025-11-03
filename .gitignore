@@ -212,7 +212,6 @@ marimo/_lsp/
 __marimo__/
 
 # GitWiki specific
-/repo/
 /static_generated/
 /media/
 /staticfiles/
@@ -220,3 +219,5 @@ __marimo__/
 
 # Wiki content repository (bind mounted in devcontainer)
 wiki-repo/
+static_wiki/
+.claude/
