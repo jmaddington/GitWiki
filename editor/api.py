@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from django.contrib.auth.models import User
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.core.exceptions import ObjectDoesNotExist
 from pathlib import Path
 import logging
@@ -106,12 +106,47 @@ class StartEditAPIView(APIView):
             repo = get_repository()
             branch_result = repo.create_draft_branch(user_id, user=user)
 
-            # Create edit session
-            session = EditSession.objects.create(
-                user=user,
-                file_path=file_path,
-                branch_name=branch_result['branch_name']
-            )
+            # Create edit session with race condition handling (fixes #22)
+            # AIDEV-NOTE: race-condition-handling; Handle concurrent session creation attempts
+            try:
+                session = EditSession.objects.create(
+                    user=user,
+                    file_path=file_path,
+                    branch_name=branch_result['branch_name']
+                )
+            except IntegrityError as e:
+                # Constraint violation - session was created by concurrent request
+                logger.warning(
+                    f'Duplicate session prevented by constraint for user {user.id}:{file_path}, '
+                    f'resuming existing session [EDITOR-START-RACE01]'
+                )
+                # Fetch the session that was just created by the concurrent request
+                existing_session = EditSession.get_user_session_for_file(user, file_path)
+                if existing_session:
+                    # Resume the existing session
+                    try:
+                        content = repo.get_file_content(file_path, existing_session.branch_name)
+                    except GitRepositoryError:
+                        try:
+                            content = repo.get_file_content(file_path, 'main')
+                        except GitRepositoryError:
+                            content = f"# {Path(file_path).stem.replace('-', ' ').title()}\n\n"
+
+                    return success_response(
+                        data={
+                            'session_id': existing_session.id,
+                            'branch_name': existing_session.branch_name,
+                            'file_path': file_path,
+                            'content': content,
+                            'created_at': existing_session.created_at,
+                            'last_modified': existing_session.last_modified,
+                            'resumed': True
+                        },
+                        message=f"Resumed existing session created by concurrent request for '{file_path}'"
+                    )
+                # If still no session found, re-raise the error
+                logger.error(f'Failed to find session after IntegrityError [EDITOR-START-RACE02]')
+                raise
 
             # Get file content from main branch, or create new
             try:

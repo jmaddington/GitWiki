@@ -145,6 +145,144 @@ class EditSessionModelTest(TestCase):
 
         self.assertIsNone(found_session)
 
+    def test_prevent_duplicate_active_sessions(self):
+        """Test that unique constraint prevents duplicate active sessions (fixes #22)."""
+        from django.db import IntegrityError, transaction
+
+        file_path = 'test.md'
+
+        # Create first active session
+        session1 = EditSession.objects.create(
+            user=self.user,
+            file_path=file_path,
+            branch_name='draft-1',
+            is_active=True
+        )
+
+        # Try to create duplicate active session - should fail
+        # Use atomic block to properly handle the transaction
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                session2 = EditSession.objects.create(
+                    user=self.user,
+                    file_path=file_path,
+                    branch_name='draft-2',
+                    is_active=True
+                )
+
+        # Verify only one active session exists (query after transaction rolled back)
+        active_sessions = EditSession.objects.filter(
+            user=self.user,
+            file_path=file_path,
+            is_active=True
+        )
+        self.assertEqual(active_sessions.count(), 1)
+        self.assertEqual(active_sessions.first().id, session1.id)
+
+    def test_allow_multiple_inactive_sessions(self):
+        """Test that multiple inactive sessions are allowed (fixes #22)."""
+        file_path = 'test.md'
+
+        # Create two inactive sessions - should succeed
+        session1 = EditSession.objects.create(
+            user=self.user,
+            file_path=file_path,
+            branch_name='draft-1',
+            is_active=False
+        )
+
+        session2 = EditSession.objects.create(
+            user=self.user,
+            file_path=file_path,
+            branch_name='draft-2',
+            is_active=False
+        )
+
+        # Should have 2 inactive sessions
+        inactive_sessions = EditSession.objects.filter(
+            user=self.user,
+            file_path=file_path,
+            is_active=False
+        )
+        self.assertEqual(inactive_sessions.count(), 2)
+
+    def test_allow_different_users_same_file(self):
+        """Test that different users can have active sessions for the same file (fixes #22)."""
+        user2 = User.objects.create_user('user2', 'user2@example.com', 'password')
+        file_path = 'test.md'
+
+        # Create active session for first user
+        session1 = EditSession.objects.create(
+            user=self.user,
+            file_path=file_path,
+            branch_name='draft-1',
+            is_active=True
+        )
+
+        # Create active session for second user - should succeed
+        session2 = EditSession.objects.create(
+            user=user2,
+            file_path=file_path,
+            branch_name='draft-2',
+            is_active=True
+        )
+
+        # Should have 2 active sessions (one per user)
+        active_sessions = EditSession.objects.filter(
+            file_path=file_path,
+            is_active=True
+        )
+        self.assertEqual(active_sessions.count(), 2)
+
+    def test_allow_same_user_different_files(self):
+        """Test that same user can have active sessions for different files (fixes #22)."""
+        # Create active sessions for different files
+        session1 = EditSession.objects.create(
+            user=self.user,
+            file_path='file1.md',
+            branch_name='draft-1',
+            is_active=True
+        )
+
+        session2 = EditSession.objects.create(
+            user=self.user,
+            file_path='file2.md',
+            branch_name='draft-2',
+            is_active=True
+        )
+
+        # Should have 2 active sessions (one per file)
+        active_sessions = EditSession.objects.filter(
+            user=self.user,
+            is_active=True
+        )
+        self.assertEqual(active_sessions.count(), 2)
+
+    def test_reactivate_after_marking_inactive(self):
+        """Test that marking session inactive allows creating new active session (fixes #22)."""
+        file_path = 'test.md'
+
+        # Create and then deactivate first session
+        session1 = EditSession.objects.create(
+            user=self.user,
+            file_path=file_path,
+            branch_name='draft-1',
+            is_active=True
+        )
+        session1.mark_inactive()
+
+        # Should be able to create new active session
+        session2 = EditSession.objects.create(
+            user=self.user,
+            file_path=file_path,
+            branch_name='draft-2',
+            is_active=True
+        )
+
+        # Verify only session2 is active
+        active_session = EditSession.get_user_session_for_file(self.user, file_path)
+        self.assertEqual(active_session.id, session2.id)
+
 
 class EditorAPITest(TestCase):
     """Tests for Editor API endpoints."""
