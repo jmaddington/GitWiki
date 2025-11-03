@@ -27,6 +27,15 @@ class EditSession(models.Model):
             models.Index(fields=['user', 'is_active']),
             models.Index(fields=['-last_modified']),
         ]
+        # AIDEV-NOTE: unique-constraint; Prevents duplicate active sessions (fixes #22)
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'file_path'],
+                condition=models.Q(is_active=True),
+                name='unique_active_session_per_user_file',
+                violation_error_message='An active session already exists for this user and file'
+            )
+        ]
 
     def __str__(self):
         status = "Active" if self.is_active else "Inactive"
@@ -64,6 +73,9 @@ class EditSession(models.Model):
         """
         Get active session for a specific user and file.
 
+        With unique constraint in place (see #22), MultipleObjectsReturned should never occur.
+        If it does, it indicates a critical database integrity issue.
+
         Returns:
             EditSession instance or None
         """
@@ -72,8 +84,12 @@ class EditSession(models.Model):
         except cls.DoesNotExist:
             return None
         except cls.MultipleObjectsReturned:
-            # If multiple active sessions exist (shouldn't happen), return the most recent
-            logger.warning(f'Multiple active sessions found for {user.username}:{file_path} [EDITSESS-MULTI01]')
+            # CRITICAL: This should never happen with unique constraint in place
+            logger.error(
+                f'CRITICAL: Unique constraint violated! Multiple active sessions for '
+                f'{user.username}:{file_path} - database integrity compromised [EDITSESS-CONSTRAINT-FAIL01]'
+            )
+            # Fallback: return most recent to prevent complete failure
             return cls.objects.filter(
                 user=user,
                 file_path=file_path,
