@@ -47,6 +47,8 @@ class CommitDraftSerializer(serializers.Serializer):
 class PublishEditSerializer(serializers.Serializer):
     """Serializer for publishing edit to main branch."""
     session_id = serializers.IntegerField(required=True, min_value=1)
+    content = serializers.CharField(required=False, allow_blank=True)  # Optional: commit before publish
+    commit_message = serializers.CharField(required=False, allow_blank=True, max_length=500)
     auto_push = serializers.BooleanField(default=True)
 
 

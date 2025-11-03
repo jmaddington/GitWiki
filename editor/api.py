@@ -40,6 +40,46 @@ from config.api_utils import (
 logger = logging.getLogger(__name__)
 
 
+def _ensure_branch_exists(session: 'EditSession', repo) -> bool:
+    """
+    Ensure the session's branch exists, recreating it if necessary.
+
+    Args:
+        session: The EditSession to check
+        repo: GitRepository instance
+
+    Returns:
+        True if branch exists or was recreated, False on error
+
+    Note:
+        Logs warnings if branch needs to be recreated.
+    """
+    if repo._has_branch(session.branch_name):
+        return True
+
+    logger.warning(
+        f'Branch {session.branch_name} missing for session {session.id}, recreating [EDITOR-BRANCH-RECREATE01]'
+    )
+
+    try:
+        # Recreate the branch from main
+        # Extract user_id from branch name (draft-{user_id}-{uuid})
+        parts = session.branch_name.split('-')
+        user_id = int(parts[1]) if len(parts) >= 2 else session.user.id
+
+        # Create new branch with same name
+        repo.repo.heads.main.checkout()
+        new_branch = repo.repo.create_head(session.branch_name)
+        new_branch.checkout()
+
+        logger.info(f'Recreated branch {session.branch_name} for session {session.id} [EDITOR-BRANCH-RECREATE02]')
+        return True
+
+    except Exception as e:
+        logger.error(f'Failed to recreate branch {session.branch_name}: {e} [EDITOR-BRANCH-RECREATE03]')
+        return False
+
+
 class StartEditAPIView(APIView):
     """
     API endpoint to start editing a file.
@@ -74,33 +114,44 @@ class StartEditAPIView(APIView):
             # Check if user already has an active session for this file
             existing_session = EditSession.get_user_session_for_file(user, file_path)
             if existing_session:
-                # Resume existing session
-                logger.info(f'Resuming existing edit session: {existing_session.id} [EDITOR-START01]')
-
-                # Get current content from branch
                 repo = get_repository()
-                try:
-                    content = repo.get_file_content(file_path, existing_session.branch_name)
-                except GitRepositoryError:
-                    # File doesn't exist in branch yet, get from main
-                    try:
-                        content = repo.get_file_content(file_path, 'main')
-                    except GitRepositoryError:
-                        # File doesn't exist anywhere, start with empty content
-                        content = f"# {Path(file_path).stem.replace('-', ' ').title()}\n\n"
 
-                return success_response(
-                    data={
-                        'session_id': existing_session.id,
-                        'branch_name': existing_session.branch_name,
-                        'file_path': file_path,
-                        'content': content,
-                        'created_at': existing_session.created_at,
-                        'last_modified': existing_session.last_modified,
-                        'resumed': True
-                    },
-                    message=f"Resumed edit session for '{file_path}'"
-                )
+                # Check if the branch still exists
+                if not repo._has_branch(existing_session.branch_name):
+                    logger.warning(
+                        f'Session {existing_session.id} branch {existing_session.branch_name} no longer exists, '
+                        f'creating new session [EDITOR-START-STALE01]'
+                    )
+                    # Mark old session as inactive
+                    existing_session.mark_inactive()
+                    # Fall through to create new session
+                else:
+                    # Resume existing session
+                    logger.info(f'Resuming existing edit session: {existing_session.id} [EDITOR-START01]')
+
+                    # Get current content from branch
+                    try:
+                        content = repo.get_file_content(file_path, existing_session.branch_name)
+                    except GitRepositoryError:
+                        # File doesn't exist in branch yet, get from main
+                        try:
+                            content = repo.get_file_content(file_path, 'main')
+                        except GitRepositoryError:
+                            # File doesn't exist anywhere, start with empty content
+                            content = f"# {Path(file_path).stem.replace('-', ' ').title()}\n\n"
+
+                    return success_response(
+                        data={
+                            'session_id': existing_session.id,
+                            'branch_name': existing_session.branch_name,
+                            'file_path': file_path,
+                            'content': content,
+                            'created_at': existing_session.created_at,
+                            'last_modified': existing_session.last_modified,
+                            'resumed': True
+                        },
+                        message=f"Resumed edit session for '{file_path}'"
+                    )
 
             # Create new draft branch
             repo = get_repository()
@@ -310,8 +361,17 @@ class CommitDraftAPIView(APIView):
                     details={'validation_errors': validation.get('errors', [])}
                 )
 
-            # Commit to Git
+            # Ensure branch exists (recreate if missing)
             repo = get_repository()
+            if not _ensure_branch_exists(session, repo):
+                return error_response(
+                    message="Failed to recreate missing branch. Please start a new edit session.",
+                    error_code="EDITOR-COMMIT-BRANCH-MISSING",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'session_id': session_id, 'branch_name': session.branch_name}
+                )
+
+            # Commit to Git
             commit_result = repo.commit_changes(
                 branch_name=session.branch_name,
                 file_path=session.file_path,
@@ -377,14 +437,48 @@ class PublishEditAPIView(APIView):
 
         data = serializer.validated_data
         session_id = data['session_id']
+        content = data.get('content')
+        commit_message = data.get('commit_message', 'Update before publish')
         auto_push = data['auto_push']
 
         try:
             # Get edit session
             session = EditSession.objects.get(id=session_id, is_active=True)
 
-            # Publish to main via Git Service
             repo = get_repository()
+
+            # Ensure branch exists (recreate if missing)
+            if not _ensure_branch_exists(session, repo):
+                # If we can't even recreate the branch, something is seriously wrong
+                session.mark_inactive()
+                return error_response(
+                    message="Failed to recreate missing branch. Please start a new edit session.",
+                    error_code="EDITOR-PUBLISH-BRANCH-MISSING",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'session_id': session_id, 'branch_name': session.branch_name}
+                )
+
+            # If content provided, commit it first before publishing
+            if content is not None:
+                logger.info(f'Committing content before publish for session {session_id} [EDITOR-PUBLISH-COMMIT01]')
+                try:
+                    repo.commit_changes(
+                        branch_name=session.branch_name,
+                        file_path=session.file_path,
+                        content=content,
+                        commit_message=commit_message,
+                        user_info={
+                            'name': session.user.username if session.user else 'Unknown',
+                            'email': session.user.email if session.user else 'unknown@example.com'
+                        },
+                        user=session.user
+                    )
+                    logger.info(f'Content committed successfully before publish [EDITOR-PUBLISH-COMMIT02]')
+                except Exception as commit_error:
+                    logger.error(f'Failed to commit content before publish: {commit_error} [EDITOR-PUBLISH-COMMIT03]')
+                    raise
+
+            # Publish to main via Git Service
             publish_result = repo.publish_draft(
                 branch_name=session.branch_name,
                 user=session.user,
@@ -415,7 +509,7 @@ class PublishEditAPIView(APIView):
             return success_response(
                 data={
                     'published': True,
-                    'url': f'/wiki/{session.file_path.replace(".md", ".html")}'
+                    'url': f'/wiki/{session.file_path.replace(".md", "")}'
                 },
                 message=f"Successfully published '{session.file_path}' to main branch"
             )

@@ -286,7 +286,7 @@
         } catch (error) {
             console.error('Failed to start edit session:', error);
             updateStatus('error', 'Failed to start session');
-            alert('Error: ' + extractErrorMessage(error, 'Failed to start edit session'));
+            showToast('Error: ' + extractErrorMessage(error, 'Failed to start edit session'), 'error', 5000);
         }
     }
 
@@ -354,7 +354,7 @@
         const commitMessage = document.getElementById('commit-message').value.trim();
 
         if (!commitMessage) {
-            alert('Please enter a commit message');
+            showToast('Please enter a commit message', 'warning', 3000);
             return;
         }
 
@@ -380,12 +380,12 @@
             bootstrap.Modal.getInstance(document.getElementById('commitModal')).hide();
             document.getElementById('commit-message').value = '';
 
-            alert('Changes committed successfully!\nCommit: ' + data.commit_hash.substring(0, 8));
+            showToast('Changes committed successfully! Commit: ' + data.commit_hash.substring(0, 8), 'success', 3000);
 
         } catch (error) {
             console.error('Commit failed:', error);
             updateStatus('error', 'Commit failed');
-            alert('Error: ' + extractErrorMessage(error, 'Failed to commit changes'));
+            showToast('Error: ' + extractErrorMessage(error, 'Failed to commit changes'), 'error', 5000);
         }
     });
 
@@ -398,8 +398,11 @@
         updateStatus('loading', 'Publishing...');
 
         try {
+            const content = editorState.simplemde.value();
             const response = await axios.post(`${API_BASE}/publish/`, {
                 session_id: editorState.sessionId,
+                content: content,
+                commit_message: 'Publish changes',
                 auto_push: true
             });
 
@@ -411,13 +414,12 @@
                 // Clear localStorage
                 localStorage.removeItem(LOCALSTORAGE_KEY);
 
-                alert('Published successfully! Redirecting to view page...');
-                window.location.href = '/'; // or data.url when display service is ready
+                showToast('Published successfully! Redirecting...', 'success', 2000, data.url);
 
             } else if (responseData.conflict) {
                 // Handle conflict
                 bootstrap.Modal.getInstance(document.getElementById('publishModal')).hide();
-                alert('Merge conflict detected!\n\nYour changes conflict with changes on the main branch. You will need to resolve the conflict before publishing.\n\nConflict resolution will be available in Phase 4.');
+                showToast('Merge conflict detected! Your changes conflict with main branch. Please resolve conflicts first.', 'warning', 5000);
                 updateStatus('error', 'Conflict detected');
             }
 
@@ -426,9 +428,9 @@
             updateStatus('error', 'Publish failed');
 
             if (error.response?.status === 409) {
-                alert('Merge conflict detected! Conflict resolution coming in Phase 4.');
+                showToast('Merge conflict detected! Please resolve conflicts before publishing.', 'warning', 5000);
             } else {
-                alert('Error: ' + extractErrorMessage(error, 'Failed to publish'));
+                showToast('Error: ' + extractErrorMessage(error, 'Failed to publish'), 'error', 5000);
             }
         }
     });
@@ -450,7 +452,7 @@
 
     async function uploadImage(file, altText = '') {
         if (!editorState.sessionId) {
-            alert('Please start an edit session first');
+            showToast('Please start an edit session first', 'warning', 3000);
             return;
         }
 
@@ -478,12 +480,12 @@
             updateStatus('saved', 'Image uploaded');
             editorState.modified = true;
 
-            alert('Image uploaded successfully!\nSize: ' + (data.file_size_bytes / 1024).toFixed(1) + ' KB');
+            showToast('Image uploaded successfully! Size: ' + (data.file_size_bytes / 1024).toFixed(1) + ' KB', 'success', 3000);
 
         } catch (error) {
             console.error('Image upload failed:', error);
             updateStatus('error', 'Upload failed');
-            alert('Error: ' + extractErrorMessage(error, 'Failed to upload image'));
+            showToast('Error: ' + extractErrorMessage(error, 'Failed to upload image'), 'error', 5000);
         }
     }
 
@@ -566,6 +568,42 @@
         document.getElementById('validation-errors').style.display = 'none';
     }
 
+    // Toast notification system
+    function showToast(message, type = 'success', duration = 3000, redirectUrl = null) {
+        const toastContainer = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+
+        // Icon based on type
+        const icons = {
+            'success': '<i class="fas fa-check-circle"></i>',
+            'error': '<i class="fas fa-exclamation-circle"></i>',
+            'warning': '<i class="fas fa-exclamation-triangle"></i>',
+            'info': '<i class="fas fa-info-circle"></i>'
+        };
+
+        toast.innerHTML = `
+            ${icons[type] || icons['info']}
+            <span class="toast-message">${message}</span>
+        `;
+
+        toastContainer.appendChild(toast);
+
+        // Trigger animation
+        setTimeout(() => toast.classList.add('show'), 10);
+
+        // Auto-hide and redirect
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                toast.remove();
+                if (redirectUrl) {
+                    window.location.href = redirectUrl;
+                }
+            }, 300);
+        }, duration);
+    }
+
     // Cleanup on page unload
     window.addEventListener('beforeunload', function(e) {
         if (editorState.modified) {
@@ -575,4 +613,85 @@
         }
     });
 </script>
+
+<style>
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    background: white;
+    border-radius: 8px;
+    padding: 16px 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 300px;
+    max-width: 500px;
+    opacity: 0;
+    transform: translateX(400px);
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    pointer-events: auto;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast i {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.toast-message {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.toast-success {
+    border-left: 4px solid #28a745;
+}
+
+.toast-success i {
+    color: #28a745;
+}
+
+.toast-error {
+    border-left: 4px solid #dc3545;
+}
+
+.toast-error i {
+    color: #dc3545;
+}
+
+.toast-warning {
+    border-left: 4px solid #ffc107;
+}
+
+.toast-warning i {
+    color: #ffc107;
+}
+
+.toast-info {
+    border-left: 4px solid #17a2b8;
+}
+
+.toast-info i {
+    color: #17a2b8;
+}
+</style>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
 {% endblock %}
