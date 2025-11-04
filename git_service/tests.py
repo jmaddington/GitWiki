@@ -10,6 +10,14 @@ import tempfile
 
 from .models import Configuration, GitOperation
 from .git_operations import GitRepository, GitRepositoryError
+from .filename_utils import (
+    sanitize_filename,
+    get_safe_extension,
+    is_safe_extension,
+    validate_filename,
+    generate_safe_filename,
+    DANGEROUS_EXTENSIONS
+)
 
 
 class ConfigurationModelTest(TestCase):
@@ -683,3 +691,449 @@ class ThreadSafetyTest(TestCase):
 
         self.assertEqual(results['success'], 50, 'All threads should succeed')
         self.assertEqual(results['failure'], 0, 'No threads should fail')
+
+
+class IncrementalRebuildTest(TestCase):
+    """Tests for incremental static file rebuild functionality."""
+
+    def setUp(self):
+        """Set up temporary repository for testing."""
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.repo = GitRepository(repo_path=self.temp_dir)
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir)
+
+    def test_get_changed_files_single_file(self):
+        """Test detecting changed files for a single file edit."""
+        # Create branch and commit a file
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='test.md',
+            content='# Test',
+            commit_message='Add test file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Get changed files
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.assertEqual(len(changed_files), 1)
+        self.assertIn('test.md', changed_files)
+
+    def test_get_changed_files_multiple_files(self):
+        """Test detecting changed files for multiple file edits."""
+        # Create branch and commit multiple files
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='doc1.md',
+            content='# Doc 1',
+            commit_message='Add doc1',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='doc2.md',
+            content='# Doc 2',
+            commit_message='Add doc2',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Get changed files
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.assertEqual(len(changed_files), 2)
+        self.assertIn('doc1.md', changed_files)
+        self.assertIn('doc2.md', changed_files)
+
+    def test_get_changed_files_no_changes(self):
+        """Test detecting no changed files when branch is identical to main."""
+        # Create branch without any commits
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        # Get changed files (should be empty)
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.assertEqual(len(changed_files), 0)
+
+    def test_write_files_to_disk_single_file(self):
+        """Test incremental rebuild with a single changed file."""
+        # Create and commit a file on main branch first
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='initial.md',
+            content='# Initial',
+            commit_message='Add initial file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Publish to create initial static files
+        self.repo.publish_draft(branch_name=branch_name, user=self.user, auto_push=False)
+
+        # Create another file
+        branch_result2 = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name2 = branch_result2['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name2,
+            file_path='new.md',
+            content='# New File',
+            commit_message='Add new file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Get changed files
+        changed_files = self.repo.get_changed_files_in_merge(branch_name2, 'main')
+
+        # Merge to main
+        self.repo.repo.heads.main.checkout()
+        self.repo.repo.git.merge(branch_name2, no_ff=True, m="Test merge")
+
+        # Test incremental rebuild
+        result = self.repo.write_files_to_disk('main', changed_files, self.user)
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result.get('incremental', False))
+        self.assertEqual(result['markdown_files'], 1)
+
+    def test_write_files_to_disk_empty_list(self):
+        """Test incremental rebuild with no changed files."""
+        result = self.repo.write_files_to_disk('main', [], self.user)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['files_written'], 0)
+        self.assertEqual(result['markdown_files'], 0)
+
+    def test_publish_draft_uses_incremental_rebuild(self):
+        """Test that publish_draft now uses incremental rebuild."""
+        # Create branch and commit a file
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='test_publish.md',
+            content='# Test Publish',
+            commit_message='Add test file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Publish (should use incremental rebuild internally)
+        result = self.repo.publish_draft(branch_name=branch_name, user=self.user, auto_push=False)
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result['merged'])
+
+        # Verify file exists in main
+        content = self.repo.get_file_content('test_publish.md', branch='main')
+        self.assertEqual(content, '# Test Publish')
+
+    def test_copy_folder_to_static(self):
+        """Test copying folder with .gitkeep to static directory."""
+        # Create a folder with .gitkeep on main
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='new_folder/.gitkeep',
+            content='',
+            commit_message='Create folder',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        # Merge to main
+        self.repo.repo.heads.main.checkout()
+        self.repo.repo.git.merge(branch_name, no_ff=True, m="Create folder")
+        self.repo.repo.delete_head(branch_name, force=True)
+
+        # Test folder copy
+        result = self.repo.copy_folder_to_static('new_folder', 'main')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['folder_path'], 'new_folder')
+
+    def test_incremental_rebuild_performance(self):
+        """Test that incremental rebuild is faster than full rebuild."""
+        import time
+
+        # Create initial files on main
+        for i in range(5):
+            branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+            branch_name = branch_result['branch_name']
+
+            self.repo.commit_changes(
+                branch_name=branch_name,
+                file_path=f'file{i}.md',
+                content=f'# File {i}',
+                commit_message=f'Add file {i}',
+                user_info={'name': 'Test', 'email': 'test@example.com'},
+                user=self.user
+            )
+
+            self.repo.publish_draft(branch_name=branch_name, user=self.user, auto_push=False)
+
+        # Measure full rebuild time
+        full_start = time.time()
+        self.repo.write_branch_to_disk('main', self.user)
+        full_time = time.time() - full_start
+
+        # Make a small change
+        branch_result = self.repo.create_draft_branch(user_id=1, user=self.user)
+        branch_name = branch_result['branch_name']
+
+        self.repo.commit_changes(
+            branch_name=branch_name,
+            file_path='new_file.md',
+            content='# New',
+            commit_message='Add new file',
+            user_info={'name': 'Test', 'email': 'test@example.com'},
+            user=self.user
+        )
+
+        changed_files = self.repo.get_changed_files_in_merge(branch_name, 'main')
+
+        self.repo.repo.heads.main.checkout()
+        self.repo.repo.git.merge(branch_name, no_ff=True, m="Test merge")
+
+        # Measure incremental rebuild time
+        inc_start = time.time()
+        result = self.repo.write_files_to_disk('main', changed_files, self.user)
+        inc_time = time.time() - inc_start
+
+        # Incremental should be faster (or at least not significantly slower)
+        # Allow some overhead for the incremental logic
+        self.assertLess(inc_time, full_time * 2.0,
+                       f"Incremental rebuild ({inc_time:.3f}s) should not be much slower than full rebuild ({full_time:.3f}s)")
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result.get('incremental', False))
+
+
+class FilenameSanitizationTest(TestCase):
+    """Tests for filename sanitization and validation utilities."""
+
+    def test_sanitize_filename_basic(self):
+        """Test basic filename sanitization."""
+        # Normal filename
+        result = sanitize_filename('my_file.pdf')
+        self.assertEqual(result, 'my_file')
+
+        # Filename with spaces
+        result = sanitize_filename('my document.txt')
+        self.assertEqual(result, 'my_document')
+
+        # Filename with special characters
+        result = sanitize_filename('file@#$%.doc')
+        self.assertEqual(result, 'file____')
+
+    def test_sanitize_filename_removes_dots(self):
+        """Test that dots are removed from base name to prevent double-extension attacks."""
+        # Double extension attack - Path.stem returns 'malware.exe' (without final .txt)
+        result = sanitize_filename('malware.exe.txt')
+        self.assertEqual(result, 'malware_exe')
+
+        # Multiple dots - Path.stem returns 'my.file.name' (without final .pdf)
+        result = sanitize_filename('my.file.name.pdf')
+        self.assertEqual(result, 'my_file_name')
+
+    def test_sanitize_filename_path_traversal(self):
+        """Test that path traversal patterns are sanitized."""
+        # Unix path traversal - Path.stem returns just 'passwd'
+        result = sanitize_filename('../../etc/passwd')
+        self.assertEqual(result, 'passwd')
+
+        # Windows path traversal on Unix - Path.stem returns '..\\.', sanitized to '____'
+        # Since result has no alphanumeric chars, fallback is used
+        # (backslashes are literal characters on Unix, not path separators)
+        result = sanitize_filename('..\\..\\Windows\\System32\\config', fallback='file')
+        self.assertEqual(result, 'file')
+
+    def test_sanitize_filename_xss_patterns(self):
+        """Test that XSS patterns are sanitized."""
+        # Script tags - Path.stem returns 'script>' (< and > treated as special), sanitized to 'script_'
+        result = sanitize_filename('<script>alert("xss")</script>.jpg')
+        self.assertEqual(result, 'script_')
+
+        # Event handlers - Path interprets these characters specially
+        result = sanitize_filename('"><img src=x onerror=alert(1)>')
+        self.assertEqual(result, '___img_src_x_onerror_alert_1__')
+
+    def test_sanitize_filename_empty_input(self):
+        """Test sanitization with empty or invalid input."""
+        # Empty string
+        result = sanitize_filename('', fallback='default')
+        self.assertEqual(result, 'default')
+
+        # None
+        result = sanitize_filename(None, fallback='default')
+        self.assertEqual(result, 'default')
+
+        # Only special characters - Path.stem returns '@#$%^&*()' then sanitization converts to underscores
+        # Since result has no alphanumeric chars, fallback is used
+        result = sanitize_filename('@#$%^&*()', fallback='file')
+        self.assertEqual(result, 'file')
+
+    def test_get_safe_extension(self):
+        """Test safe extension extraction."""
+        # Normal extension
+        self.assertEqual(get_safe_extension('file.pdf'), 'pdf')
+
+        # Multiple dots
+        self.assertEqual(get_safe_extension('archive.tar.gz'), 'gz')
+
+        # No extension
+        self.assertIsNone(get_safe_extension('noextension'))
+
+        # Uppercase extension
+        self.assertEqual(get_safe_extension('FILE.PDF'), 'pdf')
+
+        # Empty filename
+        self.assertIsNone(get_safe_extension(''))
+
+    def test_is_safe_extension(self):
+        """Test extension safety checking."""
+        # Safe extensions
+        self.assertTrue(is_safe_extension('pdf'))
+        self.assertTrue(is_safe_extension('jpg'))
+        self.assertTrue(is_safe_extension('txt'))
+        self.assertTrue(is_safe_extension(None))  # No extension is safe
+
+        # Dangerous extensions
+        self.assertFalse(is_safe_extension('exe'))
+        self.assertFalse(is_safe_extension('sh'))
+        self.assertFalse(is_safe_extension('bat'))
+        self.assertFalse(is_safe_extension('jar'))
+
+        # With leading dot
+        self.assertFalse(is_safe_extension('.exe'))
+
+    def test_dangerous_extensions_completeness(self):
+        """Test that DANGEROUS_EXTENSIONS includes critical file types."""
+        # Windows executables
+        self.assertIn('exe', DANGEROUS_EXTENSIONS)
+        self.assertIn('bat', DANGEROUS_EXTENSIONS)
+        self.assertIn('msi', DANGEROUS_EXTENSIONS)
+
+        # Unix/Linux executables
+        self.assertIn('sh', DANGEROUS_EXTENSIONS)
+        self.assertIn('bash', DANGEROUS_EXTENSIONS)
+        self.assertIn('bin', DANGEROUS_EXTENSIONS)
+
+        # macOS executables
+        self.assertIn('app', DANGEROUS_EXTENSIONS)
+        self.assertIn('dmg', DANGEROUS_EXTENSIONS)
+
+        # Cross-platform
+        self.assertIn('jar', DANGEROUS_EXTENSIONS)
+
+        # Verify count (should be 30+)
+        self.assertGreaterEqual(len(DANGEROUS_EXTENSIONS), 30)
+
+    def test_validate_filename_valid(self):
+        """Test filename validation with valid inputs."""
+        # Valid filename
+        valid, error = validate_filename('document.pdf')
+        self.assertTrue(valid)
+        self.assertIsNone(error)
+
+        # Valid filename without extension
+        valid, error = validate_filename('myfile')
+        self.assertTrue(valid)
+        self.assertIsNone(error)
+
+    def test_validate_filename_dangerous_extension(self):
+        """Test filename validation rejects dangerous extensions."""
+        # Executable
+        valid, error = validate_filename('malware.exe')
+        self.assertFalse(valid)
+        self.assertIn('Dangerous file type', error)
+
+        # Shell script
+        valid, error = validate_filename('script.sh')
+        self.assertFalse(valid)
+        self.assertIn('Dangerous file type', error)
+
+    def test_validate_filename_path_traversal(self):
+        """Test filename validation rejects path traversal."""
+        # Double dots
+        valid, error = validate_filename('../etc/passwd')
+        self.assertFalse(valid)
+        self.assertIn('Path traversal', error)
+
+        # Absolute path
+        valid, error = validate_filename('/etc/passwd')
+        self.assertFalse(valid)
+        self.assertIn('Path traversal', error)
+
+        # Windows path
+        valid, error = validate_filename('..\\Windows\\System32')
+        self.assertFalse(valid)
+        self.assertIn('Path traversal', error)
+
+    def test_validate_filename_too_long(self):
+        """Test filename validation rejects overly long filenames."""
+        long_filename = 'a' * 300
+        valid, error = validate_filename(long_filename, max_length=255)
+        self.assertFalse(valid)
+        self.assertIn('too long', error)
+
+    def test_generate_safe_filename(self):
+        """Test complete safe filename generation."""
+        # Normal filename
+        filename, ext = generate_safe_filename(
+            'my document.pdf',
+            '20250104-143000',
+            'abc123'
+        )
+        self.assertEqual(filename, 'my_document-20250104-143000-abc123')
+        self.assertEqual(ext, 'pdf')
+
+        # Double-extension attack - Path.stem returns 'malware.exe'
+        filename, ext = generate_safe_filename(
+            'malware.exe.txt',
+            '20250104-143000',
+            'xyz789'
+        )
+        self.assertEqual(filename, 'malware_exe-20250104-143000-xyz789')
+        self.assertEqual(ext, 'txt')
+
+        # XSS pattern - Path.stem returns 'script>', sanitized to 'script_'
+        filename, ext = generate_safe_filename(
+            '<script>alert("xss")</script>.jpg',
+            '20250104-143000',
+            'def456'
+        )
+        self.assertEqual(filename, 'script_-20250104-143000-def456')
+        self.assertEqual(ext, 'jpg')
+
+        # Empty result uses fallback
+        filename, ext = generate_safe_filename(
+            '@#$%^&*().',
+            '20250104-143000',
+            'ghi789',
+            fallback='uploaded'
+        )
+        self.assertEqual(filename, 'uploaded-20250104-143000-ghi789')
+        self.assertIsNone(ext)

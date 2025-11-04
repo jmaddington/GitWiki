@@ -20,13 +20,18 @@ import uuid
 from datetime import datetime
 
 from .models import EditSession
+from config.rate_limit import rate_limit
+from git_service.filename_utils import sanitize_filename, get_safe_extension
 from .serializers import (
     StartEditSerializer,
     SaveDraftSerializer,
     CommitDraftSerializer,
     PublishEditSerializer,
     ValidateMarkdownSerializer,
-    UploadImageSerializer
+    UploadImageSerializer,
+    UploadFileSerializer,
+    QuickUploadFileSerializer,
+    DeleteFileSerializer
 )
 from git_service.git_operations import get_repository, GitRepositoryError
 from git_service.models import Configuration
@@ -86,7 +91,6 @@ class StartEditAPIView(APIView):
 
     POST /api/editor/start/
     {
-        "user_id": 123,
         "file_path": "docs/getting-started.md"
     }
     """
@@ -95,21 +99,25 @@ class StartEditAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         """Start an edit session with atomic transaction support."""
+        # Check authentication
+        if not request.user.is_authenticated:
+            logger.warning('Unauthenticated user attempted to start edit session [EDITOR-AUTH01]')
+            return error_response(
+                message="Authentication required to edit files",
+                error_code="EDITOR-AUTH01",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
         # Validate input
         serializer = StartEditSerializer(data=request.data)
         if not serializer.is_valid():
             return validation_error_response(serializer.errors, "EDITOR-START-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         file_path = data['file_path']
+        user = request.user
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
 
             # Check if user already has an active session for this file
             existing_session = EditSession.get_user_session_for_file(user, file_path)
@@ -155,7 +163,7 @@ class StartEditAPIView(APIView):
 
             # Create new draft branch
             repo = get_repository()
-            branch_result = repo.create_draft_branch(user_id, user=user)
+            branch_result = repo.create_draft_branch(user.id, user=user)
 
             # Create edit session with race condition handling (fixes #22)
             # AIDEV-NOTE: race-condition-handling; Handle concurrent session creation attempts
@@ -665,6 +673,254 @@ class UploadImageAPIView(APIView):
             return response
 
 
+class UploadFileAPIView(APIView):
+    """
+    API endpoint to upload arbitrary files.
+
+    POST /api/editor/upload-file/
+    Form data:
+    - session_id: 456
+    - file: <file>
+    - description: "File description"
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    @transaction.atomic
+    @rate_limit(max_requests=5, window_seconds=60)
+    def post(self, request):
+        """Upload arbitrary file with atomic transaction support (rate limited: 5/min)."""
+        # Validate input
+        serializer = UploadFileSerializer(data=request.data)
+        if not serializer.is_valid():
+            return validation_error_response(serializer.errors, "EDITOR-UPLOAD-FILE-VAL01")
+
+        data = serializer.validated_data
+        session_id = data['session_id']
+        uploaded_file = data['file']
+        description = data.get('description', '')
+
+        try:
+            # Get edit session
+            session = EditSession.objects.get(id=session_id, is_active=True)
+
+            # Generate unique filename with timestamp
+            # AIDEV-NOTE: filename-sanitization; Use centralized sanitization from filename_utils
+            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            unique_id = str(uuid.uuid4())[:8]
+
+            # Use centralized filename sanitization (prevents double-extension attacks)
+            base_name = sanitize_filename(uploaded_file.name, fallback='file')
+            file_ext = get_safe_extension(uploaded_file.name)
+
+            # Construct filename with unique identifiers
+            filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
+
+            # AIDEV-NOTE: file-path-structure; Arbitrary files stored in files/{branch_name}/
+            file_dir = f"files/{session.branch_name}"
+            file_path = f"{file_dir}/{filename}"
+
+            # Determine if file is binary
+            # AIDEV-NOTE: binary-detection; Text files: .md, .txt, .json, .xml, .html, .css, .js, .py, etc.
+            text_extensions = {'md', 'txt', 'json', 'xml', 'html', 'css', 'js', 'py', 'yml', 'yaml', 'toml', 'ini', 'conf', 'log', 'csv', 'tsv'}
+            is_binary = file_ext not in text_extensions
+
+            # Save file to repository
+            repo = get_repository()
+            repo_path = repo.repo_path
+            full_file_dir = repo_path / file_dir
+            full_file_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write file
+            full_file_path = full_file_dir / filename
+            with open(full_file_path, 'wb') as f:
+                for chunk in uploaded_file.chunks():
+                    f.write(chunk)
+
+            # Commit file to git
+            commit_message = f"Add file: {filename}"
+            if description:
+                commit_message += f" ({description})"
+
+            repo.commit_changes(
+                branch_name=session.branch_name,
+                file_path=file_path,
+                content='',  # File is already written to disk
+                commit_message=commit_message,
+                user_info={
+                    'name': session.user.username,
+                    'email': session.user.email or f'{session.user.username}@gitwiki.local'
+                },
+                user=session.user,
+                is_binary=True  # Flag to skip content write
+            )
+
+            # Generate markdown link syntax for the file
+            markdown_syntax = f"[{uploaded_file.name}]({file_path})"
+
+            logger.info(f'Uploaded file for session {session_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-UPLOAD-FILE01]')
+
+            return success_response(
+                data={
+                    'filename': filename,
+                    'path': file_path,
+                    'markdown': markdown_syntax,
+                    'file_size_bytes': uploaded_file.size,
+                    'is_binary': is_binary
+                },
+                message=f"File '{filename}' uploaded successfully",
+                status_code=status.HTTP_201_CREATED
+            )
+
+        except EditSession.DoesNotExist:
+            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD-FILE02]')
+            return error_response(
+                message=f"Edit session {session_id} not found or inactive",
+                error_code="EDITOR-UPLOAD-FILE-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
+            )
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "upload file", "EDITOR-UPLOAD-FILE03",
+                "Failed to upload file. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
+
+
+class QuickUploadFileAPIView(APIView):
+    """
+    API endpoint for quick file upload without edit session.
+    Commits directly to main branch.
+
+    POST /api/editor/quick-upload-file/
+    Form data:
+    - file: <file>
+    - target_path: "files" (optional, default: "files")
+    - description: "File description" (optional)
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    @transaction.atomic
+    @rate_limit(max_requests=5, window_seconds=60)
+    def post(self, request):
+        """Upload file and commit directly to main branch (rate limited: 5/min)."""
+        # Check authentication
+        if not request.user.is_authenticated:
+            logger.warning('Unauthenticated user attempted quick file upload [EDITOR-AUTH02]')
+            return error_response(
+                message="Authentication required to upload files",
+                error_code="EDITOR-AUTH02",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Validate input
+        serializer = QuickUploadFileSerializer(data=request.data)
+        if not serializer.is_valid():
+            return validation_error_response(serializer.errors, "EDITOR-QUICK-UPLOAD-VAL01")
+
+        data = serializer.validated_data
+        uploaded_file = data['file']
+        target_path = data.get('target_path', 'files')
+        description = data.get('description', '')
+        user = request.user
+
+        try:
+
+            # Generate unique filename with timestamp
+            # AIDEV-NOTE: filename-sanitization; Use centralized sanitization from filename_utils
+            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            unique_id = str(uuid.uuid4())[:8]
+
+            # Use centralized filename sanitization (prevents double-extension attacks)
+            base_name = sanitize_filename(uploaded_file.name, fallback='file')
+            file_ext = get_safe_extension(uploaded_file.name)
+
+            # Construct filename with unique identifiers
+            filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
+
+            # AIDEV-NOTE: quick-upload-path; Files stored in target_path (default: files/)
+            # Clean up target_path - remove trailing slashes and handle empty paths
+            target_path = target_path.strip('/')
+            if target_path:
+                file_path = f"{target_path}/{filename}"
+            else:
+                file_path = filename
+
+            # Determine if file is binary
+            text_extensions = {'md', 'txt', 'json', 'xml', 'html', 'css', 'js', 'py', 'yml', 'yaml', 'toml', 'ini', 'conf', 'log', 'csv', 'tsv'}
+            is_binary = file_ext not in text_extensions
+
+            # Save file to repository
+            repo = get_repository()
+            repo_path = repo.repo_path
+            if target_path:
+                full_file_dir = repo_path / target_path
+            else:
+                full_file_dir = repo_path
+            full_file_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write file
+            full_file_path = full_file_dir / filename
+            with open(full_file_path, 'wb') as f:
+                for chunk in uploaded_file.chunks():
+                    f.write(chunk)
+
+            # Commit file directly to main
+            commit_message = f"Upload file: {filename}"
+            if description:
+                commit_message += f" ({description})"
+
+            repo.commit_changes(
+                branch_name='main',
+                file_path=file_path,
+                content='',  # File is already written to disk
+                commit_message=commit_message,
+                user_info={
+                    'name': user.username,
+                    'email': user.email or f'{user.username}@gitwiki.local'
+                },
+                user=user,
+                is_binary=True  # Flag to skip content write
+            )
+
+            # AIDEV-NOTE: rebuild-after-upload; Partial rebuild for directory listings (incremental-rebuild)
+            logger.info(f'Triggering partial rebuild after file upload [EDITOR-QUICK-UPLOAD-REBUILD01]')
+            try:
+                repo.write_files_to_disk('main', [file_path], user)
+                logger.info(f'Partial rebuild completed after file upload [EDITOR-QUICK-UPLOAD-REBUILD02]')
+            except Exception as rebuild_error:
+                logger.error(f'Partial rebuild failed after file upload: {rebuild_error} [EDITOR-QUICK-UPLOAD-REBUILD03]')
+                # Don't fail the upload if rebuild fails
+
+            # Generate markdown link syntax for the file
+            markdown_syntax = f"[{uploaded_file.name}]({file_path})"
+
+            logger.info(f'Quick uploaded file for user {user.id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
+
+            return success_response(
+                data={
+                    'filename': filename,
+                    'path': file_path,
+                    'markdown': markdown_syntax,
+                    'file_size_bytes': uploaded_file.size,
+                    'is_binary': is_binary
+                },
+                message=f"File '{filename}' uploaded successfully",
+                status_code=status.HTTP_201_CREATED
+            )
+
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "quick upload file", "EDITOR-QUICK-UPLOAD02",
+                "Failed to upload file. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
+
+
 class ConflictsListAPIView(APIView):
     """
     API endpoint to get list of all unresolved conflicts.
@@ -873,6 +1129,120 @@ class ResolveConflictAPIView(APIView):
             response, should_rollback = handle_exception(
                 e, "resolve conflict", "EDITOR-CONFLICT09",
                 "Failed to resolve conflict. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
+
+
+class DeleteFileAPIView(APIView):
+    """
+    API endpoint for file deletion.
+
+    POST /editor/api/delete-file/
+    {
+        "file_path": "docs/page.md",
+        "commit_message": "Delete old file"  // optional
+    }
+
+    AIDEV-NOTE: file-delete-api; Deletes files from main branch and triggers static rebuild
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    @transaction.atomic
+    @rate_limit(max_requests=10, window_seconds=60)
+    def post(self, request):
+        """Delete file with atomic transaction support (rate limited: 10/min)."""
+        # Check authentication
+        if not request.user.is_authenticated:
+            logger.warning('Unauthenticated user attempted file deletion [EDITOR-AUTH03]')
+            return error_response(
+                message="Authentication required to delete files",
+                error_code="EDITOR-AUTH03",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
+        serializer = DeleteFileSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return validation_error_response(
+                serializer.errors,
+                error_code="EDITOR-DELETE-VAL01"
+            )
+
+        validated_data = serializer.validated_data
+        file_path = validated_data['file_path']
+        commit_message = validated_data.get('commit_message', f"Delete {file_path}")
+        user = request.user
+
+        try:
+            # Get user info for git commit
+            user_info = {
+                'name': user.get_full_name() or user.username,
+                'email': user.email or f'{user.username}@gitwiki.local'
+            }
+
+            # Delete file from repository
+            repo = get_repository()
+            result = repo.delete_file(
+                file_path=file_path,
+                commit_message=commit_message,
+                user_info=user_info,
+                user=user,
+                branch_name='main'
+            )
+
+            logger.info(f'File deleted successfully: {file_path} [EDITOR-DELETE01]')
+
+            # Trigger partial rebuild for directory listings
+            logger.info(f'Triggering partial rebuild after file deletion [EDITOR-DELETE-REBUILD01]')
+            try:
+                # Get all files in parent directory for rebuild
+                parent_path = str(Path(file_path).parent)
+                if parent_path == '.':
+                    parent_path = ''
+
+                # Get list of markdown files in the parent directory
+                from pathlib import Path as PathLib
+                parent_dir = repo.repo_path / parent_path if parent_path else repo.repo_path
+                if parent_dir.exists() and parent_dir.is_dir():
+                    md_files = []
+                    for item in parent_dir.iterdir():
+                        if item.is_file() and item.suffix == '.md':
+                            rel_path = str(item.relative_to(repo.repo_path))
+                            md_files.append(rel_path)
+
+                    if md_files:
+                        repo.write_files_to_disk('main', md_files, user)
+                        logger.info(f'Partial rebuild completed after file deletion [EDITOR-DELETE-REBUILD02]')
+                    else:
+                        logger.info(f'No markdown files to rebuild in {parent_path} [EDITOR-DELETE-REBUILD03]')
+                else:
+                    logger.warning(f'Parent directory not found for rebuild: {parent_path} [EDITOR-DELETE-REBUILD04]')
+            except Exception as rebuild_error:
+                logger.error(f'Partial rebuild failed after file deletion: {rebuild_error} [EDITOR-DELETE-REBUILD05]')
+                # Don't fail the delete if rebuild fails
+
+            return success_response(
+                data={
+                    'commit_hash': result['commit_hash'],
+                    'file_path': file_path
+                },
+                message=f"File '{file_path}' deleted successfully"
+            )
+
+        except GitRepositoryError as e:
+            logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
+            return error_response(
+                message=f"Failed to delete file: {str(e)}",
+                error_code="EDITOR-DELETE03",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                details={'file_path': file_path, 'error': str(e)}
+            )
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "delete file", "EDITOR-DELETE04",
+                "Failed to delete file. Please try again."
             )
             if should_rollback:
                 transaction.set_rollback(True)

@@ -52,6 +52,8 @@ elif SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
+# CSRF Configuration
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 
 # Application definition
 
@@ -154,9 +156,20 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# Additional directories for static files (custom JS/CSS utilities)
+# AIDEV-NOTE: static-dirs-config; Custom static files for reusable JS utilities
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
 # Media files (user uploads, images)
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# File upload settings
+# AIDEV-NOTE: file-upload-config; Allow up to 100MB file uploads
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB in bytes
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB in bytes
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

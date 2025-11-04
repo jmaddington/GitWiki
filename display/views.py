@@ -113,11 +113,80 @@ def _get_breadcrumbs(file_path: str) -> List[Dict[str, str]]:
     return breadcrumbs
 
 
+def _classify_file_type(file_path: Path) -> Dict[str, str]:
+    """
+    Classify file type for display and serving.
+
+    AIDEV-NOTE: file-type-classification; Determines if file is viewable in browser or downloadable
+
+    Args:
+        file_path: Path to file
+
+    Returns:
+        Dict with 'category' (viewable_image, viewable_video, viewable_audio, markdown, other)
+        and 'icon' for display
+    """
+    suffix = file_path.suffix.lower()
+
+    # Viewable images
+    if suffix in ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico']:
+        return {'category': 'viewable_image', 'icon': 'image'}
+
+    # Viewable videos
+    if suffix in ['.mp4', '.webm', '.ogg', '.mov']:
+        return {'category': 'viewable_video', 'icon': 'film'}
+
+    # Viewable audio
+    if suffix in ['.mp3', '.wav', '.ogg', '.m4a']:
+        return {'category': 'viewable_audio', 'icon': 'music'}
+
+    # Markdown files
+    if suffix == '.md':
+        return {'category': 'markdown', 'icon': 'file-text'}
+
+    # HTML files (generated from markdown)
+    if suffix == '.html':
+        return {'category': 'html', 'icon': 'code'}
+
+    # Documents
+    if suffix in ['.pdf', '.doc', '.docx', '.txt', '.csv', '.xlsx', '.xls']:
+        return {'category': 'document', 'icon': 'file'}
+
+    # Code files
+    if suffix in ['.py', '.js', '.ts', '.jsx', '.tsx', '.css', '.scss', '.json', '.xml', '.yaml', '.yml']:
+        return {'category': 'code', 'icon': 'code'}
+
+    # Archives
+    if suffix in ['.zip', '.tar', '.gz', '.bz2', '.7z', '.rar']:
+        return {'category': 'archive', 'icon': 'archive'}
+
+    # Other/unknown
+    return {'category': 'other', 'icon': 'file'}
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """
+    Format file size in human-readable format.
+
+    Args:
+        size_bytes: File size in bytes
+
+    Returns:
+        Formatted size string (e.g., "1.5 MB")
+    """
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.1f} TB"
+
+
 def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
     """
     List files and subdirectories in a directory with caching.
 
     AIDEV-NOTE: directory-cache; Caches directory listings for 10 minutes
+    AIDEV-NOTE: all-file-types; Lists all files including images, videos, documents (not just markdown)
 
     Args:
         directory: Directory path relative to static root
@@ -146,7 +215,7 @@ def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
         items = []
 
         for item in sorted(dir_path.iterdir()):
-            # Skip hidden files and metadata files
+            # Skip hidden files, metadata files, and .git directory
             if item.name.startswith('.') or item.name.endswith('.metadata'):
                 continue
 
@@ -155,23 +224,55 @@ def _list_directory(directory: str, branch: str = 'main') -> List[Dict]:
                     'name': item.name,
                     'type': 'directory',
                     'url': f'/wiki/{directory}/{item.name}' if directory else f'/wiki/{item.name}',
-                    'path': f'{directory}/{item.name}' if directory else item.name
+                    'path': f'{directory}/{item.name}' if directory else item.name,
+                    'icon': 'folder'
                 })
             elif item.suffix == '.md':
-                # Get the corresponding HTML file
+                # Markdown files - check for corresponding HTML file
                 html_file = item.with_suffix('.html')
                 if html_file.exists():
                     rel_path = item.relative_to(static_path)
                     clean_path = str(rel_path).replace('.md', '')
                     items.append({
                         'name': item.stem.replace('-', ' ').replace('_', ' ').title(),
-                        'type': 'file',
+                        'type': 'markdown',
                         'url': f'/wiki/{clean_path}',
-                        'path': str(rel_path)
+                        'path': str(rel_path),
+                        'icon': 'file-text'
                     })
+            elif item.suffix == '.html':
+                # Skip HTML files (they're generated from markdown and shown via .md files)
+                continue
+            else:
+                # All other file types (images, videos, documents, etc.)
+                file_info = _classify_file_type(item)
+                rel_path = item.relative_to(static_path)
+                file_size = item.stat().st_size
 
-        # Sort: directories first, then files (alphabetically within each type)
-        items.sort(key=lambda x: (x['type'] != 'directory', x['name'].lower()))
+                # Link to attachment page for all non-markdown files
+                # This allows viewing file details, preview, download, and delete
+                file_url = f'/wiki/attachment/{directory}/{item.name}' if directory else f'/wiki/attachment/{item.name}'
+
+                items.append({
+                    'name': item.name,
+                    'type': file_info['category'],
+                    'url': file_url,
+                    'path': str(rel_path),
+                    'icon': file_info['icon'],
+                    'size': _format_file_size(file_size),
+                    'size_bytes': file_size
+                })
+
+        # Sort: directories first, then markdown files, then other files (alphabetically within each type)
+        def sort_key(x):
+            if x['type'] == 'directory':
+                return (0, x['name'].lower())
+            elif x['type'] == 'markdown':
+                return (1, x['name'].lower())
+            else:
+                return (2, x['name'].lower())
+
+        items.sort(key=sort_key)
 
         # Cache for 10 minutes (600 seconds)
         cache.set(cache_key, items, 600)
@@ -342,7 +443,7 @@ def wiki_page(request, file_path):
         raise
     except Exception as e:
         logger.error(f'Error rendering page {file_path}: {str(e)} [DISPLAY-PAGE04]')
-        raise Http404(f"Error loading page: {str(e)}")
+        raise Http404("Page unavailable")
 
 
 @require_http_methods(["GET"])
@@ -523,7 +624,7 @@ def page_history(request, file_path):
 
     except Exception as e:
         logger.error(f'Error loading history for {file_path}: {str(e)} [DISPLAY-HISTORY02]')
-        raise Http404(f"Error loading history: {str(e)}")
+        raise Http404("Page history unavailable")
 
 
 @require_http_methods(["GET", "POST"])
@@ -583,7 +684,7 @@ def new_page(request):
 
     except Exception as e:
         logger.error(f'Error in new page view: {str(e)} [DISPLAY-NEWPAGE05]')
-        raise Http404(f"Error creating page: {str(e)}")
+        raise Http404("Unable to create new page")
 
 
 @require_http_methods(["GET", "POST"])
@@ -658,13 +759,28 @@ def new_folder(request):
                     is_binary=False
                 )
 
-                # Publish to main
-                repo.publish_draft(
-                    branch_name=branch_name,
-                    user=request.user if request.user.is_authenticated else None
-                )
+                # Optimized folder creation: merge without full static rebuild
+                # Check for conflicts first
+                has_conflicts, _ = repo._check_merge_conflicts(branch_name)
+                if has_conflicts:
+                    logger.error(f'Unexpected conflicts when creating folder {folder_path} [DISPLAY-NEWFOLDER08]')
+                    raise Exception('Merge conflicts detected (unexpected for folder creation)')
 
-                logger.info(f'Created folder with .gitkeep: {folder_path} [DISPLAY-NEWFOLDER03]')
+                # Merge to main
+                repo.repo.heads.main.checkout()
+                repo.repo.git.merge(branch_name, no_ff=True, m=f"Create folder: {folder_path}")
+                repo.repo.delete_head(branch_name, force=True)
+
+                # Lightweight static directory update - just copy .gitkeep
+                repo.copy_folder_to_static(folder_path, 'main')
+
+                # Invalidate caches
+                from config.cache_utils import invalidate_branch_cache
+                from django.core.cache import cache
+                invalidate_branch_cache('main')
+                cache.delete('git_conflicts_list')
+
+                logger.info(f'Created folder with .gitkeep (optimized path): {folder_path} [DISPLAY-NEWFOLDER03]')
 
                 # Redirect to the new folder view
                 return redirect(f'/wiki/{folder_path}/')
@@ -691,6 +807,194 @@ def new_folder(request):
     except Exception as e:
         logger.error(f'Error in new folder view: {str(e)} [DISPLAY-NEWFOLDER05]')
         raise Http404(f"Error creating folder: {str(e)}")
+
+
+@require_http_methods(["GET"])
+def attachment_page(request, file_path):
+    """
+    Display an attachment page with file preview, download, and delete options.
+
+    AIDEV-NOTE: attachment-page; Shows file details with preview and management options
+
+    Args:
+        file_path: Path to file relative to wiki root
+
+    Query params:
+        branch: Branch to view from (default: main)
+    """
+    import mimetypes
+    import os
+
+    try:
+        branch = request.GET.get('branch', 'main')
+
+        # Clean up path and validate
+        clean_path = file_path.strip('/')
+
+        # Prevent directory traversal
+        if '..' in clean_path or clean_path.startswith('/'):
+            logger.warning(f'Invalid file path requested: {clean_path} [DISPLAY-ATTACH01]')
+            raise Http404("Invalid file path")
+
+        # Get file from repository
+        from git_service.git_operations import get_repository, GitRepositoryError
+
+        repo = get_repository()
+        repo_path = repo.repo_path / clean_path
+
+        # Check file exists and is not a directory
+        if not repo_path.exists():
+            logger.warning(f'File not found: {clean_path} [DISPLAY-ATTACH02]')
+            raise Http404(f"File not found: {clean_path}")
+
+        if repo_path.is_dir():
+            logger.warning(f'Attempted to view directory as attachment: {clean_path} [DISPLAY-ATTACH03]')
+            raise Http404("Cannot view directory as attachment")
+
+        # Prevent viewing hidden files (check only the filename, not parent directories)
+        if repo_path.name.startswith('.'):
+            logger.warning(f'Attempted to view hidden file: {clean_path} [DISPLAY-ATTACH04]')
+            raise Http404("Cannot view hidden files")
+
+        # Get file info
+        file_size = repo_path.stat().st_size
+        file_name = repo_path.name
+        file_size_formatted = _format_file_size(file_size)
+
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(repo_path)
+        if content_type is None:
+            content_type = 'application/octet-stream'
+
+        # Classify file type
+        file_type_info = _classify_file_type(repo_path)
+        file_type = file_type_info['category']
+        file_icon = file_type_info['icon']
+
+        # Determine if file can be previewed in browser
+        can_preview = content_type.startswith(('image/', 'video/', 'audio/', 'text/plain', 'application/pdf'))
+
+        # Get breadcrumbs
+        breadcrumbs = _get_breadcrumbs(clean_path)
+
+        # Get parent path for navigation
+        parent_path = str(Path(clean_path).parent)
+        if parent_path == '.':
+            parent_path = ''
+
+        # Get file URL for preview
+        file_url = f'/wiki/file/{clean_path}'
+
+        logger.info(f'Displaying attachment page for {clean_path} [DISPLAY-ATTACH05]')
+
+        context = {
+            'file_path': clean_path,
+            'file_name': file_name,
+            'file_size': file_size_formatted,
+            'file_size_bytes': file_size,
+            'content_type': content_type,
+            'file_type': file_type,
+            'file_icon': file_icon,
+            'can_preview': can_preview,
+            'file_url': file_url,
+            'breadcrumbs': breadcrumbs,
+            'parent_path': parent_path,
+            'branch': branch
+        }
+
+        return render(request, 'display/attachment.html', context)
+
+    except Http404:
+        raise
+    except Exception as e:
+        logger.error(f'Error displaying attachment page for {file_path}: {str(e)} [DISPLAY-ATTACH06]')
+        raise Http404("Attachment unavailable")
+
+
+def serve_file(request, file_path):
+    """
+    Serve static files (images, videos, documents) from the wiki.
+
+    AIDEV-NOTE: file-serving; Serves all file types with appropriate Content-Type and disposition
+
+    Args:
+        file_path: Path to file relative to static root
+
+    Query params:
+        download: If present, force download instead of inline display
+        branch: Branch to serve from (default: main)
+    """
+    import mimetypes
+    from django.http import FileResponse, HttpResponse
+
+    try:
+        branch = request.GET.get('branch', 'main')
+        force_download = request.GET.get('download') is not None
+
+        # Clean up path and validate
+        clean_path = file_path.strip('/')
+
+        # Prevent directory traversal
+        if '..' in clean_path or clean_path.startswith('/'):
+            logger.warning(f'Invalid file path requested: {clean_path} [DISPLAY-FILE01]')
+            raise Http404("Invalid file path")
+
+        # Get file from static directory
+        static_path = _get_static_path(branch)
+        file_full_path = static_path / clean_path
+
+        # Check file exists and is not a directory
+        if not file_full_path.exists():
+            logger.warning(f'File not found: {clean_path} [DISPLAY-FILE02]')
+            raise Http404(f"File not found: {clean_path}")
+
+        if file_full_path.is_dir():
+            logger.warning(f'Attempted to serve directory as file: {clean_path} [DISPLAY-FILE03]')
+            raise Http404("Cannot serve directory as file")
+
+        # Prevent serving hidden files or .git directory
+        if any(part.startswith('.') for part in file_full_path.parts):
+            logger.warning(f'Attempted to serve hidden/git file: {clean_path} [DISPLAY-FILE04]')
+            raise Http404("Cannot serve hidden files")
+
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(file_full_path)
+        if content_type is None:
+            content_type = 'application/octet-stream'
+
+        # Open and serve file
+        try:
+            response = FileResponse(
+                open(file_full_path, 'rb'),
+                content_type=content_type
+            )
+
+            # Set Content-Disposition header
+            file_name = file_full_path.name
+            if force_download or not content_type.startswith(('image/', 'video/', 'audio/', 'text/')):
+                # Force download for non-viewable files or when explicitly requested
+                response['Content-Disposition'] = f'attachment; filename="{file_name}"'
+            else:
+                # Inline display for viewable files
+                response['Content-Disposition'] = f'inline; filename="{file_name}"'
+
+            # AIDEV-NOTE: security-headers; Prevent MIME sniffing, XSS, and clickjacking
+            response['X-Content-Type-Options'] = 'nosniff'
+            response['X-Frame-Options'] = 'DENY'
+            response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline';"
+
+            logger.info(f'Serving file: {clean_path} (type: {content_type}, download: {force_download}) [DISPLAY-FILE05]')
+            return response
+
+        except IOError as e:
+            logger.error(f'Error reading file {clean_path}: {str(e)} [DISPLAY-FILE06]')
+            raise Http404("File unavailable")
+
+    except Http404:
+        raise
+    except Exception as e:
+        logger.error(f'Error serving file {file_path}: {str(e)} [DISPLAY-FILE07]')
+        raise Http404("File unavailable")
 
 
 # Error Handlers

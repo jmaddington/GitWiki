@@ -272,6 +272,169 @@ class DisplayViewsTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Table Example')
 
+    def test_directory_listing_with_images(self):
+        """Test that directory listing includes image files."""
+        # Create an images directory with test images
+        images_dir = self.temp_static_dir / 'main' / 'images'
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create test image files
+        test_image_1 = images_dir / 'test1.png'
+        test_image_2 = images_dir / 'test2.jpg'
+        test_image_1.write_bytes(b'fake png data')
+        test_image_2.write_bytes(b'fake jpg data')
+
+        # Clear cache to ensure fresh listing
+        cache.clear()
+
+        # Get directory listing
+        from display.views import _list_directory
+        items = _list_directory('images', 'main')
+
+        # Should include both image files
+        image_names = [item['name'] for item in items if item['type'] in ['viewable_image']]
+        self.assertIn('test1.png', image_names)
+        self.assertIn('test2.jpg', image_names)
+
+        # Files should have size information
+        for item in items:
+            if item['type'] == 'viewable_image':
+                self.assertIn('size', item)
+                self.assertIn('icon', item)
+                self.assertEqual(item['icon'], 'image')
+
+    def test_file_type_classification(self):
+        """Test file type classification function."""
+        from display.views import _classify_file_type
+
+        # Test images
+        self.assertEqual(
+            _classify_file_type(Path('test.png')),
+            {'category': 'viewable_image', 'icon': 'image'}
+        )
+        self.assertEqual(
+            _classify_file_type(Path('test.jpg')),
+            {'category': 'viewable_image', 'icon': 'image'}
+        )
+
+        # Test videos
+        self.assertEqual(
+            _classify_file_type(Path('test.mp4')),
+            {'category': 'viewable_video', 'icon': 'film'}
+        )
+
+        # Test documents
+        self.assertEqual(
+            _classify_file_type(Path('test.pdf')),
+            {'category': 'document', 'icon': 'file'}
+        )
+
+        # Test code files
+        self.assertEqual(
+            _classify_file_type(Path('test.py')),
+            {'category': 'code', 'icon': 'code'}
+        )
+
+        # Test archives
+        self.assertEqual(
+            _classify_file_type(Path('test.zip')),
+            {'category': 'archive', 'icon': 'archive'}
+        )
+
+        # Test unknown
+        self.assertEqual(
+            _classify_file_type(Path('test.unknown')),
+            {'category': 'other', 'icon': 'file'}
+        )
+
+    def test_serve_image_file(self):
+        """Test serving an image file."""
+        # Create test image
+        images_dir = self.temp_static_dir / 'main' / 'images'
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        test_image = images_dir / 'test.png'
+        test_image.write_bytes(b'PNG fake data')
+
+        # Request the image
+        response = self.client.get('/wiki/file/images/test.png')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'image/png')
+        self.assertIn('inline', response['Content-Disposition'])
+
+    def test_serve_file_with_download(self):
+        """Test serving a file with download flag."""
+        # Create test document
+        docs_dir = self.temp_static_dir / 'main' / 'documents'
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        test_doc = docs_dir / 'test.pdf'
+        test_doc.write_bytes(b'PDF fake data')
+
+        # Request the file with download flag
+        response = self.client.get('/wiki/file/documents/test.pdf?download=1')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment', response['Content-Disposition'])
+
+    def test_serve_file_not_found(self):
+        """Test 404 for non-existent files."""
+        response = self.client.get('/wiki/file/nonexistent/file.png')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_serve_file_directory_traversal_protection(self):
+        """Test that directory traversal is prevented."""
+        response = self.client.get('/wiki/file/../../../etc/passwd')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_serve_file_hidden_file_protection(self):
+        """Test that hidden files cannot be served."""
+        # Create hidden file
+        static_main = self.temp_static_dir / 'main'
+        static_main.mkdir(parents=True, exist_ok=True)
+
+        hidden_file = static_main / '.hidden'
+        hidden_file.write_text('secret data')
+
+        response = self.client.get('/wiki/file/.hidden')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_directory_view_shows_image_files(self):
+        """Test that directory view page shows image files."""
+        # Create images directory with files
+        images_dir = self.temp_static_dir / 'main' / 'images'
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        test_image = images_dir / 'screenshot.png'
+        test_image.write_bytes(b'PNG data')
+
+        # Clear cache
+        cache.clear()
+
+        # View directory
+        response = self.client.get('/wiki/images/')
+
+        self.assertEqual(response.status_code, 200)
+        # Should show the image file
+        self.assertContains(response, 'screenshot.png')
+        # Should not show "This directory is empty"
+        self.assertNotContains(response, 'This directory is empty')
+
+    def test_file_size_formatting(self):
+        """Test file size formatting function."""
+        from display.views import _format_file_size
+
+        self.assertEqual(_format_file_size(0), '0.0 B')
+        self.assertEqual(_format_file_size(500), '500.0 B')
+        self.assertEqual(_format_file_size(1024), '1.0 KB')
+        self.assertEqual(_format_file_size(1024 * 1024), '1.0 MB')
+        self.assertEqual(_format_file_size(1024 * 1024 * 1024), '1.0 GB')
+        self.assertEqual(_format_file_size(1536), '1.5 KB')  # 1.5 KB
+
 
 class CacheUtilsTest(TestCase):
     """Tests for cache utility functions."""

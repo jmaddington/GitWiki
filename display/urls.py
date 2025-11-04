@@ -25,6 +25,12 @@ urlpatterns = [
     # Page history
     path('history/<path:file_path>/', views.page_history, name='history'),
 
+    # Attachment page with preview and delete options
+    path('attachment/<path:file_path>/', views.attachment_page, name='attachment-page'),
+
+    # File serving (images, videos, documents)
+    path('file/<path:file_path>', views.serve_file, name='serve-file'),
+
     # Wiki pages (catch-all, must be last)
     path('<path:file_path>/', views.wiki_page, name='page'),
 ]
