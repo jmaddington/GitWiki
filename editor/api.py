@@ -860,7 +860,7 @@ class QuickUploadFileAPIView(APIView):
                 content='',  # File is already written to disk
                 commit_message=commit_message,
                 user_info={
-                    'name': user.username,
+                    'name': user.get_full_name() or user.username,
                     'email': user.email or f'{user.username}@gitwiki.local'
                 },
                 user=user,
@@ -879,7 +879,7 @@ class QuickUploadFileAPIView(APIView):
             # Generate markdown link syntax for the file
             markdown_syntax = f"[{uploaded_file.name}]({file_path})"
 
-            logger.info(f'Quick uploaded file for user {user.id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
+            logger.info(f'User {user.id} ({user.username}) quick uploaded file: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
 
             return success_response(
                 data={
@@ -1153,7 +1153,7 @@ class DeleteFileAPIView(APIView):
             # Get user info for git commit
             user_info = {
                 'name': user.get_full_name() or user.username,
-                'email': user.email
+                'email': user.email or f'{user.username}@gitwiki.local'
             }
 
             # Delete file from repository
@@ -1166,7 +1166,7 @@ class DeleteFileAPIView(APIView):
                 branch_name='main'
             )
 
-            logger.info(f'File deleted successfully: {file_path} [EDITOR-DELETE01]')
+            logger.info(f'User {user.id} ({user.username}) deleted file: {file_path} [EDITOR-DELETE01]')
 
             # Trigger partial rebuild for directory listings
             logger.info(f'Triggering partial rebuild after file deletion [EDITOR-DELETE-REBUILD01]')
@@ -1208,10 +1208,10 @@ class DeleteFileAPIView(APIView):
         except GitRepositoryError as e:
             logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
             return error_response(
-                message=f"Failed to delete file: {str(e)}",
+                message="Failed to delete file. Please try again.",
                 error_code="EDITOR-DELETE03",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                details={'file_path': file_path, 'error': str(e)}
+                details={'file_path': file_path}
             )
         except Exception as e:
             response, should_rollback = handle_exception(
