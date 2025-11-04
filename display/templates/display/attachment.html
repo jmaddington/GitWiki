@@ -112,13 +112,14 @@
 
 {% block extra_js %}
 <script>
+    // AIDEV-NOTE: xss-prevention; Use |escapejs for Django variables in JavaScript
     // Delete file button handler
     const deleteBtn = document.getElementById('btn-delete-file');
 
     if (deleteBtn) {
         deleteBtn.addEventListener('click', async function() {
             // Confirm deletion
-            if (!confirm('Are you sure you want to delete "{{ file_name }}"? This will commit the deletion to the repository.')) {
+            if (!confirm('Are you sure you want to delete "{{ file_name|escapejs }}"? This will commit the deletion to the repository.')) {
                 return;
             }
 
@@ -134,8 +135,8 @@
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                     },
                     body: JSON.stringify({
-                        file_path: '{{ file_path }}',
-                        commit_message: 'Delete {{ file_name }}'
+                        file_path: '{{ file_path|escapejs }}',
+                        commit_message: 'Delete {{ file_name|escapejs }}'
                     })
                 });
 

@@ -111,9 +111,10 @@
                             </td>
                             <td class="text-end">
                                 {% if item.type != 'directory' %}
+                                {# AIDEV-NOTE: xss-prevention; Escape data attributes for defense in depth #}
                                 <button class="btn btn-sm btn-outline-danger delete-file-btn"
-                                        data-file-path="{{ item.path }}"
-                                        data-file-name="{{ item.name }}"
+                                        data-file-path="{{ item.path|escape }}"
+                                        data-file-name="{{ item.name|escape }}"
                                         title="Delete file">
                                     <i class="fas fa-trash"></i>
                                 </button>
