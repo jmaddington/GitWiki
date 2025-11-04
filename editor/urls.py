@@ -15,7 +15,8 @@ from .api import (
     ConflictsListAPIView,
     ConflictVersionsAPIView,
     ResolveConflictAPIView,
-    DeleteFileAPIView
+    DeleteFileAPIView,
+    DiscardDraftAPIView
 )
 from . import views
 
@@ -32,6 +33,7 @@ urlpatterns = [
     path('api/upload-file/', UploadFileAPIView.as_view(), name='api-upload-file'),
     path('api/quick-upload-file/', QuickUploadFileAPIView.as_view(), name='api-quick-upload-file'),
     path('api/delete-file/', DeleteFileAPIView.as_view(), name='api-delete-file'),
+    path('api/discard/', DiscardDraftAPIView.as_view(), name='api-discard-draft'),
 
     # Conflict resolution API endpoints
     path('api/conflicts/', ConflictsListAPIView.as_view(), name='api-conflicts-list'),

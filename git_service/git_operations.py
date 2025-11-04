@@ -12,7 +12,6 @@ AIDEV-NOTE: atomic-ops; All operations must be atomic and rollback-safe
 """
 
 import os
-import re
 import shutil
 import uuid
 import json
@@ -219,9 +218,7 @@ class GitRepository:
                 raise GitRepositoryError(f"Branch {branch_name} does not exist")
 
             # Checkout branch if not already on it
-            # AIDEV-NOTE: perf-cache-branch; Cache active branch name to avoid repeated git calls
-            current_branch = self.repo.active_branch.name
-            if current_branch != branch_name:
+            if self.repo.active_branch.name != branch_name:
                 self.repo.heads[branch_name].checkout()
 
             # Write file content (skip if binary file already on disk)
@@ -336,9 +333,7 @@ class GitRepository:
                 raise GitRepositoryError(f"File not found: {file_path}")
 
             # Checkout branch if not already on it
-            # AIDEV-NOTE: perf-cache-branch; Cache active branch name to avoid repeated git calls
-            current_branch = self.repo.active_branch.name
-            if current_branch != branch_name:
+            if self.repo.active_branch.name != branch_name:
                 self.repo.heads[branch_name].checkout()
 
             # Remove file from filesystem
@@ -913,7 +908,70 @@ class GitRepository:
                 'history_summary': {'total_commits': 0, 'contributors': [], 'created': None, 'last_modified': None}
             }
 
-    def _markdown_to_html(self, content: str) -> Tuple[str, str]:
+    def _resolve_relative_paths(self, html_content: str, file_path: str) -> str:
+        """
+        Resolve relative image and link paths in HTML to absolute URLs.
+
+        AIDEV-NOTE: path-resolution; Converts relative paths to absolute /wiki/file/ URLs
+
+        Args:
+            html_content: HTML content with potentially relative paths
+            file_path: Path to the markdown file (e.g., 'Windows 10 EOL Upgrades/Windows 10 EOL Upgrades.md')
+
+        Returns:
+            HTML with resolved absolute paths
+        """
+        from pathlib import Path
+        from html.parser import HTMLParser
+        import re
+
+        # Get the directory containing the markdown file
+        file_dir = str(Path(file_path).parent) if file_path else ''
+        if file_dir == '.':
+            file_dir = ''
+
+        def resolve_path(url: str) -> str:
+            """Resolve a single URL path."""
+            # Skip absolute URLs (http://, https://, //, /)
+            if url.startswith(('http://', 'https://', '//', '/')):
+                return url
+
+            # Skip anchors and mailto
+            if url.startswith(('#', 'mailto:')):
+                return url
+
+            # Resolve relative path
+            if file_dir:
+                resolved = f'{file_dir}/{url}'
+            else:
+                resolved = url
+
+            # Normalize path (remove ./ and handle ../)
+            resolved = str(Path(resolved))
+
+            # Convert to absolute wiki URL
+            return f'/wiki/file/{resolved}'
+
+        # Process img src attributes
+        html_content = re.sub(
+            r'<img\s+([^>]*?)src=["\']([^"\']+)["\']([^>]*?)>',
+            lambda m: f'<img {m.group(1)}src="{resolve_path(m.group(2))}"{m.group(3)}>',
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        # Process a href attributes (for links to files, not wiki pages)
+        # Only process links to non-.md files to avoid breaking internal wiki links
+        html_content = re.sub(
+            r'<a\s+([^>]*?)href=["\']([^"\']+\.(?:png|jpg|jpeg|gif|svg|pdf|doc|docx|xls|xlsx|zip|tar|gz))["\']([^>]*?)>',
+            lambda m: f'<a {m.group(1)}href="{resolve_path(m.group(2))}"{m.group(3)}>',
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        return html_content
+
+    def _markdown_to_html(self, content: str, file_path: str = '') -> Tuple[str, str]:
         """
         Convert markdown to HTML with table of contents, with caching.
 
@@ -922,6 +980,7 @@ class GitRepository:
 
         Args:
             content: Markdown content
+            file_path: Path to markdown file for resolving relative paths (default: '')
 
         Returns:
             Tuple of (html_content, toc_html)
@@ -930,8 +989,10 @@ class GitRepository:
         import hashlib
 
         try:
-            # Create cache key from content hash
-            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+            # Create cache key from content hash and file path
+            # File path is important for cache key because same content in different locations needs different URLs
+            cache_data = f'{content}:{file_path}'
+            content_hash = hashlib.md5(cache_data.encode('utf-8')).hexdigest()
             cache_key = f'markdown:{content_hash}'
 
             # Check cache first
@@ -952,6 +1013,10 @@ class GitRepository:
 
             html_content = md.convert(content)
             toc_html = md.toc if hasattr(md, 'toc') else ''
+
+            # Resolve relative paths to absolute URLs
+            if file_path:
+                html_content = self._resolve_relative_paths(html_content, file_path)
 
             result = (html_content, toc_html)
 
@@ -1033,8 +1098,8 @@ class GitRepository:
                     md_path = temp_dir / md_file
                     md_content = md_path.read_text(encoding='utf-8')
 
-                    # Convert to HTML
-                    html_content, toc_html = self._markdown_to_html(md_content)
+                    # Convert to HTML with file path for resolving relative URLs
+                    html_content, toc_html = self._markdown_to_html(md_content, md_file)
 
                     # Generate metadata
                     metadata = self._generate_metadata(md_file, branch_name)
@@ -1191,9 +1256,7 @@ class GitRepository:
             # Step 2: Process changed files
             changed_md_files = set()
             affected_dirs = set()
-            changed_images = []
 
-            # First pass: collect changed markdown files and images
             for changed_file in changed_files:
                 file_path = Path(changed_file)
                 affected_dirs.add(str(file_path.parent))
@@ -1202,33 +1265,24 @@ class GitRepository:
                 if file_path.suffix == '.md':
                     changed_md_files.add(changed_file)
 
-                # Collect image files for batch processing
+                # Handle image files - find markdown files that reference them
                 elif changed_file.startswith('images/'):
-                    changed_images.append(file_path.name)
+                    try:
+                        logger.info(f'Finding markdown files referencing image {changed_file} [GITOPS-PARTIAL05]')
+                        # Use git grep to find references to this image
+                        image_name = file_path.name
+                        grep_result = self.repo.git.grep('-l', image_name, '--', '*.md')
 
-            # AIDEV-NOTE: batch-git-grep; Process all images in one grep for performance
-            # Handle image files - find markdown files that reference them (batched)
-            if changed_images:
-                logger.info(f'Finding markdown files referencing {len(changed_images)} changed images [GITOPS-PARTIAL05]')
-                try:
-                    # Build regex pattern for all images: (image1|image2|image3)
-                    # Escape special regex characters in filenames
-                    escaped_images = [re.escape(img) for img in changed_images]
-                    pattern = '|'.join(escaped_images)
-                    grep_result = self.repo.git.grep('-l', '-E', pattern, '--', '*.md')
+                        if grep_result:
+                            referencing_files = grep_result.strip().split('\n')
+                            for ref_file in referencing_files:
+                                if ref_file.strip():
+                                    changed_md_files.add(ref_file.strip())
+                                    logger.info(f'Image referenced in {ref_file.strip()} [GITOPS-PARTIAL06]')
+                    except git.exc.GitCommandError:
+                        # No references found (grep returns error if no matches)
+                        logger.info(f'No markdown files reference {changed_file} [GITOPS-PARTIAL07]')
 
-                    if grep_result:
-                        referencing_files = grep_result.strip().split('\n')
-                        for ref_file in referencing_files:
-                            if ref_file.strip():
-                                changed_md_files.add(ref_file.strip())
-                        logger.info(f'Found {len(referencing_files)} markdown files referencing changed images [GITOPS-PARTIAL06]')
-                except git.exc.GitCommandError:
-                    # No references found (grep returns error if no matches)
-                    logger.info(f'No markdown files reference changed images [GITOPS-PARTIAL07]')
-
-            # Second pass: copy changed files to temp directory
-            for changed_file in changed_files:
                 # Copy the changed file to temp directory
                 source_path = self.repo_path / changed_file
                 dest_path = temp_dir / changed_file
@@ -1263,8 +1317,8 @@ class GitRepository:
                     # Read markdown content
                     md_content = md_path.read_text(encoding='utf-8')
 
-                    # Convert to HTML
-                    html_content, toc_html = self._markdown_to_html(md_content)
+                    # Convert to HTML with file path for resolving relative URLs
+                    html_content, toc_html = self._markdown_to_html(md_content, md_file)
 
                     # Generate metadata
                     metadata = self._generate_metadata(md_file, branch_name)

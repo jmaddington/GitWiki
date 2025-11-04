@@ -20,8 +20,6 @@ import uuid
 from datetime import datetime
 
 from .models import EditSession
-from config.rate_limit import rate_limit
-from git_service.filename_utils import sanitize_filename, get_safe_extension
 from .serializers import (
     StartEditSerializer,
     SaveDraftSerializer,
@@ -31,7 +29,8 @@ from .serializers import (
     UploadImageSerializer,
     UploadFileSerializer,
     QuickUploadFileSerializer,
-    DeleteFileSerializer
+    DeleteFileSerializer,
+    DiscardDraftSerializer
 )
 from git_service.git_operations import get_repository, GitRepositoryError
 from git_service.models import Configuration
@@ -91,6 +90,7 @@ class StartEditAPIView(APIView):
 
     POST /api/editor/start/
     {
+        "user_id": 123,
         "file_path": "docs/getting-started.md"
     }
     """
@@ -99,25 +99,21 @@ class StartEditAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         """Start an edit session with atomic transaction support."""
-        # Check authentication
-        if not request.user.is_authenticated:
-            logger.warning('Unauthenticated user attempted to start edit session [EDITOR-AUTH01]')
-            return error_response(
-                message="Authentication required to edit files",
-                error_code="EDITOR-AUTH01",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            )
-
         # Validate input
         serializer = StartEditSerializer(data=request.data)
         if not serializer.is_valid():
             return validation_error_response(serializer.errors, "EDITOR-START-VAL01")
 
         data = serializer.validated_data
+        user_id = data['user_id']
         file_path = data['file_path']
-        user = request.user
 
         try:
+            # Get or create user
+            user, created = User.objects.get_or_create(
+                id=user_id,
+                defaults={'username': f'user_{user_id}'}
+            )
 
             # Check if user already has an active session for this file
             existing_session = EditSession.get_user_session_for_file(user, file_path)
@@ -148,6 +144,16 @@ class StartEditAPIView(APIView):
                             # File doesn't exist anywhere, start with empty content
                             content = f"# {Path(file_path).stem.replace('-', ' ').title()}\n\n"
 
+                    # AIDEV-NOTE: draft-staleness-check; Detect if draft differs from main
+                    is_stale = False
+                    main_content = None
+                    try:
+                        main_content = repo.get_file_content(file_path, 'main')
+                        is_stale = (content != main_content)
+                    except GitRepositoryError:
+                        # File doesn't exist in main, so not stale
+                        pass
+
                     return success_response(
                         data={
                             'session_id': existing_session.id,
@@ -156,14 +162,15 @@ class StartEditAPIView(APIView):
                             'content': content,
                             'created_at': existing_session.created_at,
                             'last_modified': existing_session.last_modified,
-                            'resumed': True
+                            'resumed': True,
+                            'is_stale': is_stale
                         },
                         message=f"Resumed edit session for '{file_path}'"
                     )
 
             # Create new draft branch
             repo = get_repository()
-            branch_result = repo.create_draft_branch(user.id, user=user)
+            branch_result = repo.create_draft_branch(user_id, user=user)
 
             # Create edit session with race condition handling (fixes #22)
             # AIDEV-NOTE: race-condition-handling; Handle concurrent session creation attempts
@@ -686,9 +693,8 @@ class UploadFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @transaction.atomic
-    @rate_limit(max_requests=5, window_seconds=60)
     def post(self, request):
-        """Upload arbitrary file with atomic transaction support (rate limited: 5/min)."""
+        """Upload arbitrary file with atomic transaction support."""
         # Validate input
         serializer = UploadFileSerializer(data=request.data)
         if not serializer.is_valid():
@@ -704,15 +710,10 @@ class UploadFileAPIView(APIView):
             session = EditSession.objects.get(id=session_id, is_active=True)
 
             # Generate unique filename with timestamp
-            # AIDEV-NOTE: filename-sanitization; Use centralized sanitization from filename_utils
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            file_ext = uploaded_file.name.split('.')[-1].lower() if '.' in uploaded_file.name else ''
             unique_id = str(uuid.uuid4())[:8]
-
-            # Use centralized filename sanitization (prevents double-extension attacks)
-            base_name = sanitize_filename(uploaded_file.name, fallback='file')
-            file_ext = get_safe_extension(uploaded_file.name)
-
-            # Construct filename with unique identifiers
+            base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
             filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
 
             # AIDEV-NOTE: file-path-structure; Arbitrary files stored in files/{branch_name}/
@@ -796,6 +797,7 @@ class QuickUploadFileAPIView(APIView):
 
     POST /api/editor/quick-upload-file/
     Form data:
+    - user_id: 123
     - file: <file>
     - target_path: "files" (optional, default: "files")
     - description: "File description" (optional)
@@ -803,41 +805,31 @@ class QuickUploadFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @transaction.atomic
-    @rate_limit(max_requests=5, window_seconds=60)
     def post(self, request):
-        """Upload file and commit directly to main branch (rate limited: 5/min)."""
-        # Check authentication
-        if not request.user.is_authenticated:
-            logger.warning('Unauthenticated user attempted quick file upload [EDITOR-AUTH02]')
-            return error_response(
-                message="Authentication required to upload files",
-                error_code="EDITOR-AUTH02",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            )
-
+        """Upload file and commit directly to main branch."""
         # Validate input
         serializer = QuickUploadFileSerializer(data=request.data)
         if not serializer.is_valid():
             return validation_error_response(serializer.errors, "EDITOR-QUICK-UPLOAD-VAL01")
 
         data = serializer.validated_data
+        user_id = data['user_id']
         uploaded_file = data['file']
         target_path = data.get('target_path', 'files')
         description = data.get('description', '')
-        user = request.user
 
         try:
+            # Get or create user
+            user, created = User.objects.get_or_create(
+                id=user_id,
+                defaults={'username': f'user_{user_id}'}
+            )
 
             # Generate unique filename with timestamp
-            # AIDEV-NOTE: filename-sanitization; Use centralized sanitization from filename_utils
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            file_ext = uploaded_file.name.split('.')[-1].lower() if '.' in uploaded_file.name else ''
             unique_id = str(uuid.uuid4())[:8]
-
-            # Use centralized filename sanitization (prevents double-extension attacks)
-            base_name = sanitize_filename(uploaded_file.name, fallback='file')
-            file_ext = get_safe_extension(uploaded_file.name)
-
-            # Construct filename with unique identifiers
+            base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
             filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
 
             # AIDEV-NOTE: quick-upload-path; Files stored in target_path (default: files/)
@@ -897,7 +889,7 @@ class QuickUploadFileAPIView(APIView):
             # Generate markdown link syntax for the file
             markdown_syntax = f"[{uploaded_file.name}]({file_path})"
 
-            logger.info(f'Quick uploaded file for user {user.id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
+            logger.info(f'Quick uploaded file for user {user_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
 
             return success_response(
                 data={
@@ -1141,6 +1133,7 @@ class DeleteFileAPIView(APIView):
 
     POST /editor/api/delete-file/
     {
+        "user_id": 1,
         "file_path": "docs/page.md",
         "commit_message": "Delete old file"  // optional
     }
@@ -1150,18 +1143,8 @@ class DeleteFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @transaction.atomic
-    @rate_limit(max_requests=10, window_seconds=60)
     def post(self, request):
-        """Delete file with atomic transaction support (rate limited: 10/min)."""
-        # Check authentication
-        if not request.user.is_authenticated:
-            logger.warning('Unauthenticated user attempted file deletion [EDITOR-AUTH03]')
-            return error_response(
-                message="Authentication required to delete files",
-                error_code="EDITOR-AUTH03",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            )
-
+        """Delete file with atomic transaction support."""
         serializer = DeleteFileSerializer(data=request.data)
 
         if not serializer.is_valid():
@@ -1171,15 +1154,18 @@ class DeleteFileAPIView(APIView):
             )
 
         validated_data = serializer.validated_data
+        user_id = validated_data['user_id']
         file_path = validated_data['file_path']
         commit_message = validated_data.get('commit_message', f"Delete {file_path}")
-        user = request.user
 
         try:
+            # Get user for logging
+            user = User.objects.filter(id=user_id).first()
+
             # Get user info for git commit
             user_info = {
-                'name': user.get_full_name() or user.username,
-                'email': user.email or f'{user.username}@gitwiki.local'
+                'name': user.get_full_name() or user.username if user else 'Unknown',
+                'email': user.email if user else 'unknown@example.com'
             }
 
             # Delete file from repository
@@ -1231,6 +1217,14 @@ class DeleteFileAPIView(APIView):
                 message=f"File '{file_path}' deleted successfully"
             )
 
+        except User.DoesNotExist:
+            logger.error(f'User not found: {user_id} [EDITOR-DELETE-NOTFOUND]')
+            return error_response(
+                message=f"User {user_id} not found",
+                error_code="EDITOR-DELETE-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'user_id': user_id}
+            )
         except GitRepositoryError as e:
             logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
             return error_response(
@@ -1243,6 +1237,77 @@ class DeleteFileAPIView(APIView):
             response, should_rollback = handle_exception(
                 e, "delete file", "EDITOR-DELETE04",
                 "Failed to delete file. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
+
+
+class DiscardDraftAPIView(APIView):
+    """
+    API endpoint to discard a draft session.
+
+    POST /api/editor/discard/
+    {
+        "session_id": 123
+    }
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    @transaction.atomic
+    def post(self, request):
+        """Discard a draft session and delete its branch."""
+        # Validate input
+        serializer = DiscardDraftSerializer(data=request.data)
+        if not serializer.is_valid():
+            return validation_error_response(serializer.errors, "EDITOR-DISCARD-VAL01")
+
+        data = serializer.validated_data
+        session_id = data['session_id']
+
+        try:
+            # Get the edit session
+            session = EditSession.objects.get(id=session_id, is_active=True)
+            file_path = session.file_path
+            branch_name = session.branch_name
+
+            # Mark session as inactive
+            session.mark_inactive()
+            logger.info(f'Discarded draft session {session_id} for {file_path} [EDITOR-DISCARD01]')
+
+            # Try to delete the draft branch
+            try:
+                repo = get_repository()
+                # Switch to main before deleting the branch
+                repo.repo.heads.main.checkout()
+                # Delete the draft branch
+                repo.repo.delete_head(branch_name, force=True)
+                logger.info(f'Deleted draft branch {branch_name} [EDITOR-DISCARD02]')
+            except Exception as e:
+                # Branch deletion is not critical - session is already inactive
+                logger.warning(f'Failed to delete branch {branch_name}: {e} [EDITOR-DISCARD03]')
+
+            return success_response(
+                data={
+                    'session_id': session_id,
+                    'file_path': file_path,
+                    'branch_name': branch_name
+                },
+                message=f"Draft for '{file_path}' discarded successfully"
+            )
+
+        except EditSession.DoesNotExist:
+            logger.error(f'Session not found: {session_id} [EDITOR-DISCARD-NOTFOUND]')
+            return error_response(
+                message=f"Edit session {session_id} not found or already discarded",
+                error_code="EDITOR-DISCARD-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
+            )
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "discard draft", "EDITOR-DISCARD04",
+                "Failed to discard draft. Please try again."
             )
             if should_rollback:
                 transaction.set_rollback(True)

@@ -215,9 +215,14 @@ __marimo__/
 /static_generated/
 /media/
 /staticfiles/
+/static/
 /logs/*.log
+node_modules/
+package-lock.json
 
 # Wiki content repository (bind mounted in devcontainer)
 wiki-repo/
 static_wiki/
 .claude/
+# macOS
+.DS_Store

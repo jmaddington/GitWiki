@@ -117,11 +117,8 @@
 
     if (deleteBtn) {
         deleteBtn.addEventListener('click', async function() {
-            // Confirm deletion - escape filename to prevent XSS
-            // AIDEV-NOTE: xss-prevention; Use escapeHtml() from utils.js for all user input
-            const fileName = '{{ file_name|escapejs }}';  // Server-side escape for JS context
-            const escapedFileName = escapeHtml(fileName);  // Additional client-side escaping
-            if (!confirm(`Are you sure you want to delete "${escapedFileName}"? This will commit the deletion to the repository.`)) {
+            // Confirm deletion
+            if (!confirm('Are you sure you want to delete "{{ file_name }}"? This will commit the deletion to the repository.')) {
                 return;
             }
 
@@ -137,6 +134,7 @@
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                     },
                     body: JSON.stringify({
+                        user_id: 1,  // Default user
                         file_path: '{{ file_path }}',
                         commit_message: 'Delete {{ file_name }}'
                     })
