@@ -1138,3 +1138,285 @@ class EditorAuthenticationTest(TestCase):
 
         # Should not be 302 (redirect) or 403 (forbidden) - authentication passed
         self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_commit_draft(self):
+        """Test that unauthenticated users cannot commit drafts."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to commit without authentication
+        response = self.client.post('/editor/api/commit/', {
+            'session_id': session_id,
+            'content': '# Updated Content',
+            'commit_message': 'Update'
+        }, content_type='application/json')
+
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_commit_draft(self):
+        """Test that authenticated users can commit drafts."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Commit draft
+        response = self.client.post('/editor/api/commit/', {
+            'session_id': session_id,
+            'content': '# Updated Content',
+            'commit_message': 'Update'
+        }, content_type='application/json')
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_publish_edit(self):
+        """Test that unauthenticated users cannot publish edits."""
+        # Create and commit a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test2.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        self.client.post('/editor/api/commit/', {
+            'session_id': session_id,
+            'content': '# Test Content',
+            'commit_message': 'Initial commit'
+        }, content_type='application/json')
+        self.client.logout()
+
+        # Try to publish without authentication
+        response = self.client.post('/editor/api/publish/', {
+            'session_id': session_id,
+            'auto_push': False
+        }, content_type='application/json')
+
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_publish_edit(self):
+        """Test that authenticated users can publish edits."""
+        self.client.force_login(self.user)
+
+        # Start session and commit
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test2.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        self.client.post('/editor/api/commit/', {
+            'session_id': session_id,
+            'content': '# Test Content',
+            'commit_message': 'Initial commit'
+        }, content_type='application/json')
+
+        # Publish
+        response = self.client.post('/editor/api/publish/', {
+            'session_id': session_id,
+            'auto_push': False
+        }, content_type='application/json')
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_upload_image(self):
+        """Test that unauthenticated users cannot upload images."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to upload image without authentication
+        from io import BytesIO
+        from PIL import Image
+
+        img = Image.new('RGB', (100, 100), color='red')
+        img_bytes = BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        img_bytes.name = 'test.png'
+
+        response = self.client.post(
+            '/editor/api/upload-image/',
+            data={
+                'session_id': session_id,
+                'image': img_bytes,
+                'alt_text': 'Test image'
+            }
+        )
+
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_upload_image(self):
+        """Test that authenticated users can upload images."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Upload image
+        from io import BytesIO
+        from PIL import Image
+
+        img = Image.new('RGB', (100, 100), color='red')
+        img_bytes = BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        img_bytes.name = 'test.png'
+
+        response = self.client.post(
+            '/editor/api/upload-image/',
+            data={
+                'session_id': session_id,
+                'image': img_bytes,
+                'alt_text': 'Test image'
+            }
+        )
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_upload_file(self):
+        """Test that unauthenticated users cannot upload files."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to upload file without authentication
+        from io import BytesIO
+
+        test_file = BytesIO(b'Test file content')
+        test_file.name = 'test.pdf'
+
+        response = self.client.post(
+            '/editor/api/upload-file/',
+            data={
+                'session_id': session_id,
+                'file': test_file,
+                'description': 'Test file'
+            }
+        )
+
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_upload_file(self):
+        """Test that authenticated users can upload files."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Upload file
+        from io import BytesIO
+
+        test_file = BytesIO(b'Test file content')
+        test_file.name = 'test.pdf'
+
+        response = self.client.post(
+            '/editor/api/upload-file/',
+            data={
+                'session_id': session_id,
+                'file': test_file,
+                'description': 'Test file'
+            }
+        )
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_resolve_conflict(self):
+        """Test that unauthenticated users cannot resolve conflicts."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to resolve conflict without authentication
+        response = self.client.post('/editor/api/conflicts/resolve/', {
+            'session_id': session_id,
+            'file_path': 'test.md',
+            'resolution_content': 'resolved content',
+            'conflict_type': 'text'
+        }, content_type='application/json')
+
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_resolve_conflict(self):
+        """Test that authenticated users can attempt to resolve conflicts (not blocked by auth)."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Try to resolve conflict (may fail for other reasons, but should not be blocked by auth)
+        response = self.client.post('/editor/api/conflicts/resolve/', {
+            'session_id': session_id,
+            'file_path': 'test.md',
+            'resolution_content': 'resolved content',
+            'conflict_type': 'text'
+        }, content_type='application/json')
+
+        # Should not be blocked by authentication (might fail for other reasons)
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_discard_draft(self):
+        """Test that unauthenticated users cannot discard drafts."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to discard without authentication
+        response = self.client.post('/editor/api/discard/', {
+            'session_id': session_id
+        }, content_type='application/json')
+
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_discard_draft(self):
+        """Test that authenticated users can discard drafts."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Discard draft
+        response = self.client.post('/editor/api/discard/', {
+            'session_id': session_id
+        }, content_type='application/json')
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 403])

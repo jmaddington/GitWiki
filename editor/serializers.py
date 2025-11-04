@@ -51,6 +51,21 @@ class PublishEditSerializer(serializers.Serializer):
     auto_push = serializers.BooleanField(default=True)
 
 
+class ResolveConflictSerializer(serializers.Serializer):
+    """Serializer for conflict resolution."""
+    session_id = serializers.IntegerField(required=True, min_value=1)
+    file_path = serializers.CharField(required=True, max_length=1024)
+    resolution_content = serializers.CharField(required=True)
+    conflict_type = serializers.CharField(required=False, default='text')
+
+    def validate_file_path(self, value):
+        """Validate file path is safe."""
+        # AIDEV-NOTE: path-validation; Prevent directory traversal attacks
+        if '..' in value or value.startswith('/'):
+            raise serializers.ValidationError("Invalid file path: no absolute paths or parent directory references allowed")
+        return value
+
+
 class ValidateMarkdownSerializer(serializers.Serializer):
     """Serializer for markdown validation."""
     content = serializers.CharField(required=True, allow_blank=True)

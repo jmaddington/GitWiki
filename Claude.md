@@ -171,7 +171,11 @@ Git Service:
 
 Editor Service:
 - EDITSESS-INACTIVE01, EDITSESS-MULTI01, EDITSESS-CONSTRAINT-FAIL01
-- EDITOR-AUTH01, EDITOR-AUTH02, EDITOR-AUTH03 (authentication required for edit operations)
+- EDITOR-AUTH01, EDITOR-AUTH02, EDITOR-AUTH03 (authentication required for edit operations - legacy codes)
+- **Authentication enforcement** (Issue #60): All destructive endpoints now require `IsAuthenticated` permission class
+  - StartEditAPIView, CommitDraftAPIView, PublishEditAPIView, UploadImageAPIView, UploadFileAPIView, QuickUploadFileAPIView, DeleteFileAPIView, ResolveConflictAPIView, DiscardDraftAPIView
+  - See SECURITY.md "Authentication and Authorization" section for patterns and best practices
+  - User attribution standardized via helper functions: `get_user_info_from_request()` and `get_user_info_from_session()`
 - EDITOR-BRANCH-RECREATE01, EDITOR-BRANCH-RECREATE02, EDITOR-BRANCH-RECREATE03
 - EDITOR-START01, EDITOR-START02, EDITOR-START03, EDITOR-START-VAL01, EDITOR-START-RACE01, EDITOR-START-RACE02, EDITOR-START-STALE01
 - EDITOR-SAVE01, EDITOR-SAVE02, EDITOR-SAVE03, EDITOR-SAVE-VAL01, EDITOR-SAVE-NOTFOUND
