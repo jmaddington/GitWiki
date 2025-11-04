@@ -7,7 +7,7 @@ AIDEV-NOTE: api-endpoints; REST API for git operations with standardized error h
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated
 from django.contrib.auth.models import User
 from django.db import transaction
 import logging
@@ -23,7 +23,8 @@ from config.api_utils import (
     error_response,
     success_response,
     validation_error_response,
-    handle_exception
+    handle_exception,
+    get_user_info_for_commit
 )
 
 logger = logging.getLogger(__name__)
@@ -34,31 +35,21 @@ class CreateBranchAPIView(APIView):
     API endpoint to create a new draft branch.
 
     POST /api/git/branch/create/
-    {
-        "user_id": 123
-    }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
         """Create a new draft branch with atomic transaction support."""
-        # Validate input
-        serializer = CreateBranchSerializer(data=request.data)
-        if not serializer.is_valid():
-            return validation_error_response(serializer.errors, "API-BRANCH-VAL01")
-
-        user_id = serializer.validated_data['user_id']
+        # Get authenticated user
+        user = request.user
 
         try:
-            # Get user instance for logging
-            user = request.user if request.user.is_authenticated else None
-
             # Create branch
             repo = get_repository()
-            result = repo.create_draft_branch(user_id, user=user)
+            result = repo.create_draft_branch(user.id, user=user)
 
-            logger.info(f'Branch created via API: {result["branch_name"]} [API-BRANCH01]')
+            logger.info(f'User {user.id} ({user.username}) created branch via API: {result["branch_name"]} [API-BRANCH01]')
 
             return success_response(
                 data=result,
@@ -84,14 +75,10 @@ class CommitChangesAPIView(APIView):
         "branch_name": "draft-123-abc456",
         "file_path": "docs/page.md",
         "content": "# Page Title\nContent...",
-        "commit_message": "Update page",
-        "user_info": {
-            "name": "John Doe",
-            "email": "john@example.com"
-        }
+        "commit_message": "Update page"
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -104,8 +91,8 @@ class CommitChangesAPIView(APIView):
         data = serializer.validated_data
 
         try:
-            # Get user instance for logging
-            user = request.user if request.user.is_authenticated else None
+            # Get authenticated user
+            user = request.user
 
             # Commit changes
             repo = get_repository()
@@ -114,11 +101,11 @@ class CommitChangesAPIView(APIView):
                 file_path=data['file_path'],
                 content=data['content'],
                 commit_message=data['commit_message'],
-                user_info=data['user_info'],
+                user_info=get_user_info_for_commit(user),
                 user=user
             )
 
-            logger.info(f'Changes committed via API: {result["commit_hash"][:8]} [API-COMMIT01]')
+            logger.info(f'User {user.id} ({user.username}) committed changes via API: {result["commit_hash"][:8]} to {data["file_path"]} [API-COMMIT01]')
 
             return success_response(
                 data=result,
@@ -145,7 +132,7 @@ class PublishDraftAPIView(APIView):
         "auto_push": true
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -158,8 +145,8 @@ class PublishDraftAPIView(APIView):
         data = serializer.validated_data
 
         try:
-            # Get user instance for logging
-            user = request.user if request.user.is_authenticated else None
+            # Get authenticated user
+            user = request.user
 
             # Publish draft
             repo = get_repository()
@@ -171,7 +158,7 @@ class PublishDraftAPIView(APIView):
 
             # If there were conflicts, return 409
             if not result['success'] and 'conflicts' in result:
-                logger.warning(f'Publish failed due to conflicts: {data["branch_name"]} [API-PUBLISH01]')
+                logger.warning(f'User {user.id} ({user.username}) publish failed due to conflicts: {data["branch_name"]} [API-PUBLISH01]')
                 # Add success=False to maintain standard format
                 result['success'] = False
                 result['error'] = {
@@ -181,7 +168,7 @@ class PublishDraftAPIView(APIView):
                 }
                 return Response(result, status=status.HTTP_409_CONFLICT)
 
-            logger.info(f'Draft published via API: {data["branch_name"]} [API-PUBLISH02]')
+            logger.info(f'User {user.id} ({user.username}) published draft via API: {data["branch_name"]} [API-PUBLISH02]')
 
             return success_response(
                 data=result,

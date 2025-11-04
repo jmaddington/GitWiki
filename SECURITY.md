@@ -275,18 +275,52 @@ if value.size > max_size:
 
 ### Require Authentication for Destructive Operations
 
+**Rule**: ALL destructive operations (create, update, delete, publish, upload) MUST use `IsAuthenticated` permission class.
+
 **Example - Correct**:
 ```python
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticated
 
 class DeleteFileAPIView(APIView):
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]  # Enforces authentication
 
     def post(self, request):
         # User is guaranteed to be authenticated
         user = request.user
         # ... perform deletion
 ```
+
+**Example - Incorrect** (DO NOT DO THIS):
+```python
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
+
+class DeleteFileAPIView(APIView):
+    permission_classes = [IsAuthenticatedOrReadOnly]  # WRONG for POST/DELETE
+    # This allows unauthenticated POST requests in read-only mode!
+```
+
+**When to use `IsAuthenticated` vs `IsAuthenticatedOrReadOnly`**:
+- `IsAuthenticated`: For ALL write operations (POST, PUT, PATCH, DELETE)
+- `IsAuthenticatedOrReadOnly`: ONLY for read-only endpoints (GET, HEAD, OPTIONS)
+
+**Fixed endpoints** (Issue #60):
+
+Editor API (`editor/api.py`):
+- `StartEditAPIView` - Start edit sessions
+- `SaveDraftAPIView` - Save draft and update timestamp
+- `CommitDraftAPIView` - Commit to draft branches
+- `PublishEditAPIView` - Publish to main branch (CRITICAL)
+- `UploadImageAPIView` - Upload images
+- `UploadFileAPIView` - Upload files
+- `QuickUploadFileAPIView` - Quick upload to main
+- `DeleteFileAPIView` - Delete files
+- `ResolveConflictAPIView` - Resolve merge conflicts
+- `DiscardDraftAPIView` - Discard draft sessions
+
+Git Service API (`git_service/api.py`):
+- `CreateBranchAPIView` - Create draft branches
+- `CommitChangesAPIView` - Commit changes to branches (CRITICAL)
+- `PublishDraftAPIView` - Publish draft to main (CRITICAL)
 
 ### Never Trust User-Provided User IDs
 
@@ -302,6 +336,99 @@ user = User.objects.get(id=user_id)
 # Always use authenticated user from request
 user = request.user
 ```
+
+### User Attribution in Git Commits
+
+**Rule**: Use the standardized `get_user_info_for_commit()` function for ALL git operations to ensure consistent user attribution.
+
+**Helper Function** (`config/api_utils.py`):
+```python
+def get_user_info_for_commit(user):
+    """
+    Get standardized user info for git commits.
+
+    This is the SINGLE source of truth for user attribution in git commits.
+    All git operations should use this function to ensure consistent authorship.
+    """
+    return {
+        'name': user.get_full_name() or user.username,
+        'email': user.email or f'{user.username}@gitwiki.local'
+    }
+```
+
+**Usage**: Pass any Django User instance to the function.
+
+**Email Fallback Pattern**: Always provides `{username}@gitwiki.local` as fallback for users without configured email addresses.
+
+**Example - Correct**:
+```python
+# Direct from request.user
+repo.commit_changes(
+    branch_name='main',
+    file_path=file_path,
+    content=content,
+    commit_message=commit_message,
+    user_info=get_user_info_for_commit(request.user),  # Simple and consistent
+    user=request.user
+)
+
+# From EditSession
+repo.commit_changes(
+    branch_name=session.branch_name,
+    file_path=session.file_path,
+    content=content,
+    commit_message=commit_message,
+    user_info=get_user_info_for_commit(session.user),  # Same function!
+    user=session.user
+)
+```
+
+**Example - Incorrect** (DO NOT DO THIS):
+```python
+# Manual construction - inconsistent pattern
+user_info = {
+    'name': user.username,  # Missing get_full_name() fallback
+    'email': user.email or 'unknown@example.com'  # Wrong domain
+}
+```
+
+### Session-Based Operations Security
+
+**Defense-in-Depth**: Session-based operations use TWO layers of security:
+1. **Authentication requirement**: `IsAuthenticated` permission class
+2. **Session ownership**: Session tied to authenticated user via `EditSession.user`
+
+**Why both layers are needed**:
+- Authentication prevents unauthenticated access
+- Session ownership prevents authenticated users from accessing others' sessions
+- Even if session_id is leaked/guessed, attacker must be authenticated AND own the session
+
+**Example - Correct**:
+```python
+class CommitDraftAPIView(APIView):
+    permission_classes = [IsAuthenticated]  # Layer 1: Require authentication
+
+    def post(self, request):
+        session_id = request.data.get('session_id')
+
+        # Layer 2: Session is tied to a specific user
+        session = EditSession.objects.get(id=session_id, is_active=True)
+        # session.user is set during StartEditAPIView
+        # No additional ownership check needed - session belongs to specific user
+```
+
+**Attack Scenarios Prevented**:
+1. **Session ID Leakage**: Even if session_id is leaked, attacker must be authenticated
+2. **CSRF Attacks**: Combined with CSRF tokens, provides robust protection
+3. **Privilege Escalation**: Can't impersonate users via user_id parameter (removed)
+4. **Unauthorized Publishing**: Can't merge malicious content without authentication
+5. **Resource Exhaustion**: Can't upload large files without authentication
+
+**Best Practices**:
+- Never accept `user_id` in request data for authenticated operations
+- Always use `request.user` for user attribution
+- Sessions automatically track which user created them
+- Log user ID and username for audit trails
 
 ---
 
@@ -380,9 +507,13 @@ Use this checklist when reviewing pull requests:
 - [ ] Uploaded files are stored in controlled locations
 
 ### Authentication
-- [ ] Destructive operations require authentication
+- [ ] ALL destructive API endpoints use `IsAuthenticated` permission class
+- [ ] No `user_id` accepted in request data for authenticated operations
 - [ ] User identity comes from `request.user`, not request data
+- [ ] User attribution uses standardized helper function `get_user_info_for_commit(user)`
 - [ ] Permissions are checked before sensitive operations
+- [ ] Session-based operations verified to be tied to authenticated user
+- [ ] Audit logging includes user ID and username for destructive operations
 
 ### Rate Limiting
 - [ ] Destructive endpoints have rate limiting

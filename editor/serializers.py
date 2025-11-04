@@ -10,7 +10,6 @@ from django.contrib.auth.models import User
 
 class StartEditSerializer(serializers.Serializer):
     """Serializer for starting an edit session."""
-    user_id = serializers.IntegerField(required=True, min_value=1)
     file_path = serializers.CharField(required=True, max_length=1024)
 
     def validate_file_path(self, value):
@@ -50,6 +49,21 @@ class PublishEditSerializer(serializers.Serializer):
     content = serializers.CharField(required=False, allow_blank=True)  # Optional: commit before publish
     commit_message = serializers.CharField(required=False, allow_blank=True, max_length=500)
     auto_push = serializers.BooleanField(default=True)
+
+
+class ResolveConflictSerializer(serializers.Serializer):
+    """Serializer for conflict resolution."""
+    session_id = serializers.IntegerField(required=True, min_value=1)
+    file_path = serializers.CharField(required=True, max_length=1024)
+    resolution_content = serializers.CharField(required=True)
+    conflict_type = serializers.CharField(required=False, default='text')
+
+    def validate_file_path(self, value):
+        """Validate file path is safe."""
+        # AIDEV-NOTE: path-validation; Prevent directory traversal attacks
+        if '..' in value or value.startswith('/'):
+            raise serializers.ValidationError("Invalid file path: no absolute paths or parent directory references allowed")
+        return value
 
 
 class ValidateMarkdownSerializer(serializers.Serializer):
@@ -111,7 +125,6 @@ class UploadFileSerializer(serializers.Serializer):
 
 class QuickUploadFileSerializer(serializers.Serializer):
     """Serializer for quick file upload without edit session."""
-    user_id = serializers.IntegerField(required=True, min_value=1)
     file = serializers.FileField(required=True)
     target_path = serializers.CharField(required=False, allow_blank=True, max_length=512, default="files")
     description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
@@ -140,7 +153,6 @@ class QuickUploadFileSerializer(serializers.Serializer):
 
 class DeleteFileSerializer(serializers.Serializer):
     """Serializer for file deletion."""
-    user_id = serializers.IntegerField(required=True, min_value=1)
     file_path = serializers.CharField(required=True, max_length=1024)
     commit_message = serializers.CharField(required=False, allow_blank=True, max_length=500)
 

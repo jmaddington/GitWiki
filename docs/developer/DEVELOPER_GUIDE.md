@@ -391,17 +391,15 @@ Base URL: `/api/git/`
 
 **Endpoint:** `POST /api/git/commit/`
 
+**Authentication:** Required. User attribution is automatically added from the authenticated user.
+
 **Request:**
 ```json
 {
     "branch_name": "draft-1-a1b2c3d4",
     "file_path": "docs/getting-started.md",
     "content": "# Getting Started\nContent here...",
-    "commit_message": "Update getting started guide",
-    "user_info": {
-        "name": "John Doe",
-        "email": "john@example.com"
-    }
+    "commit_message": "Update getting started guide"
 }
 ```
 
@@ -419,6 +417,8 @@ Base URL: `/api/git/`
 #### Publish Draft
 
 **Endpoint:** `POST /api/git/publish/`
+
+**Authentication:** Required.
 
 **Request:**
 ```json

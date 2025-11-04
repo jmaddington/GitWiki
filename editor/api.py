@@ -7,7 +7,7 @@ AIDEV-NOTE: editor-api; REST API for markdown editing workflow with standardized
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.db import transaction, IntegrityError
@@ -25,6 +25,7 @@ from .serializers import (
     SaveDraftSerializer,
     CommitDraftSerializer,
     PublishEditSerializer,
+    ResolveConflictSerializer,
     ValidateMarkdownSerializer,
     UploadImageSerializer,
     UploadFileSerializer,
@@ -38,7 +39,8 @@ from config.api_utils import (
     error_response,
     success_response,
     validation_error_response,
-    handle_exception
+    handle_exception,
+    get_user_info_for_commit
 )
 
 logger = logging.getLogger(__name__)
@@ -90,11 +92,10 @@ class StartEditAPIView(APIView):
 
     POST /api/editor/start/
     {
-        "user_id": 123,
         "file_path": "docs/getting-started.md"
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -105,15 +106,11 @@ class StartEditAPIView(APIView):
             return validation_error_response(serializer.errors, "EDITOR-START-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         file_path = data['file_path']
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
+            # Get authenticated user
+            user = request.user
 
             # Check if user already has an active session for this file
             existing_session = EditSession.get_user_session_for_file(user, file_path)
@@ -170,7 +167,7 @@ class StartEditAPIView(APIView):
 
             # Create new draft branch
             repo = get_repository()
-            branch_result = repo.create_draft_branch(user_id, user=user)
+            branch_result = repo.create_draft_branch(user.id, user=user)
 
             # Create edit session with race condition handling (fixes #22)
             # AIDEV-NOTE: race-condition-handling; Handle concurrent session creation attempts
@@ -257,7 +254,7 @@ class SaveDraftAPIView(APIView):
         "content": "# Page Title\nContent..."
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -345,7 +342,7 @@ class CommitDraftAPIView(APIView):
         "commit_message": "Update page content"
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -392,17 +389,14 @@ class CommitDraftAPIView(APIView):
                 file_path=session.file_path,
                 content=content,
                 commit_message=commit_message,
-                user_info={
-                    'name': session.user.username,
-                    'email': session.user.email or f'{session.user.username}@gitwiki.local'
-                },
+                user_info=get_user_info_for_commit(session.user),
                 user=session.user
             )
 
             # Update session
             session.touch()
 
-            logger.info(f'Committed draft for session {session_id}: {commit_result["commit_hash"][:8]} [EDITOR-COMMIT01]')
+            logger.info(f'User {session.user.id} ({session.user.username}) committed draft for session {session_id}: {commit_result["commit_hash"][:8]} [EDITOR-COMMIT01]')
 
             return success_response(
                 data={
@@ -440,7 +434,7 @@ class PublishEditAPIView(APIView):
         "auto_push": true
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -475,17 +469,14 @@ class PublishEditAPIView(APIView):
 
             # If content provided, commit it first before publishing
             if content is not None:
-                logger.info(f'Committing content before publish for session {session_id} [EDITOR-PUBLISH-COMMIT01]')
+                logger.info(f'User {session.user.id} ({session.user.username}) committing content before publish for session {session_id} [EDITOR-PUBLISH-COMMIT01]')
                 try:
                     repo.commit_changes(
                         branch_name=session.branch_name,
                         file_path=session.file_path,
                         content=content,
                         commit_message=commit_message,
-                        user_info={
-                            'name': session.user.username if session.user else 'Unknown',
-                            'email': session.user.email if session.user else 'unknown@example.com'
-                        },
+                        user_info=get_user_info_for_commit(session.user),
                         user=session.user
                     )
                     logger.info(f'Content committed successfully before publish [EDITOR-PUBLISH-COMMIT02]')
@@ -502,7 +493,7 @@ class PublishEditAPIView(APIView):
 
             # Check for conflicts
             if not publish_result['success'] and 'conflicts' in publish_result:
-                logger.warning(f'Publish failed due to conflicts: {session.branch_name} [EDITOR-PUBLISH01]')
+                logger.warning(f'User {session.user.id} ({session.user.username}) publish failed due to conflicts: {session.branch_name} [EDITOR-PUBLISH01]')
                 return Response({
                     'success': False,
                     'error': {
@@ -519,7 +510,7 @@ class PublishEditAPIView(APIView):
             # Success - close edit session
             session.mark_inactive()
 
-            logger.info(f'Published edit session {session_id} to main [EDITOR-PUBLISH02]')
+            logger.info(f'User {session.user.id} ({session.user.username}) published edit session {session_id} to main [EDITOR-PUBLISH02]')
 
             return success_response(
                 data={
@@ -587,7 +578,7 @@ class UploadImageAPIView(APIView):
     - image: <file>
     - alt_text: "Screenshot description"
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -638,10 +629,7 @@ class UploadImageAPIView(APIView):
                 file_path=image_path,
                 content='',  # Image is already written to disk
                 commit_message=commit_message,
-                user_info={
-                    'name': session.user.username,
-                    'email': session.user.email or f'{session.user.username}@gitwiki.local'
-                },
+                user_info=get_user_info_for_commit(session.user),
                 user=session.user,
                 is_binary=True  # Flag to skip content write
             )
@@ -649,7 +637,7 @@ class UploadImageAPIView(APIView):
             # Generate markdown syntax
             markdown_syntax = f"![{alt_text}]({image_path})"
 
-            logger.info(f'Uploaded image for session {session_id}: {filename} [EDITOR-UPLOAD01]')
+            logger.info(f'User {session.user.id} ({session.user.username}) uploaded image for session {session_id}: {filename} ({image_file.size} bytes) [EDITOR-UPLOAD01]')
 
             return success_response(
                 data={
@@ -690,7 +678,7 @@ class UploadFileAPIView(APIView):
     - file: <file>
     - description: "File description"
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -747,10 +735,7 @@ class UploadFileAPIView(APIView):
                 file_path=file_path,
                 content='',  # File is already written to disk
                 commit_message=commit_message,
-                user_info={
-                    'name': session.user.username,
-                    'email': session.user.email or f'{session.user.username}@gitwiki.local'
-                },
+                user_info=get_user_info_for_commit(session.user),
                 user=session.user,
                 is_binary=True  # Flag to skip content write
             )
@@ -758,7 +743,7 @@ class UploadFileAPIView(APIView):
             # Generate markdown link syntax for the file
             markdown_syntax = f"[{uploaded_file.name}]({file_path})"
 
-            logger.info(f'Uploaded file for session {session_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-UPLOAD-FILE01]')
+            logger.info(f'User {session.user.id} ({session.user.username}) uploaded file for session {session_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-UPLOAD-FILE01]')
 
             return success_response(
                 data={
@@ -797,12 +782,11 @@ class QuickUploadFileAPIView(APIView):
 
     POST /api/editor/quick-upload-file/
     Form data:
-    - user_id: 123
     - file: <file>
     - target_path: "files" (optional, default: "files")
     - description: "File description" (optional)
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -813,17 +797,13 @@ class QuickUploadFileAPIView(APIView):
             return validation_error_response(serializer.errors, "EDITOR-QUICK-UPLOAD-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         uploaded_file = data['file']
         target_path = data.get('target_path', 'files')
         description = data.get('description', '')
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
+            # Get authenticated user
+            user = request.user
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -869,10 +849,7 @@ class QuickUploadFileAPIView(APIView):
                 file_path=file_path,
                 content='',  # File is already written to disk
                 commit_message=commit_message,
-                user_info={
-                    'name': user.username,
-                    'email': user.email or f'{user.username}@gitwiki.local'
-                },
+                user_info=get_user_info_for_commit(user),
                 user=user,
                 is_binary=True  # Flag to skip content write
             )
@@ -889,7 +866,7 @@ class QuickUploadFileAPIView(APIView):
             # Generate markdown link syntax for the file
             markdown_syntax = f"[{uploaded_file.name}]({file_path})"
 
-            logger.info(f'Quick uploaded file for user {user_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
+            logger.info(f'User {user.id} ({user.username}) quick uploaded file: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
 
             return success_response(
                 data={
@@ -1019,28 +996,21 @@ class ResolveConflictAPIView(APIView):
         "conflict_type": "text"  // or "image_mine", "image_theirs", "binary_mine", "binary_theirs"
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
         """Resolve conflict with atomic transaction support."""
-        # Validate required fields
-        session_id = request.data.get('session_id')
-        file_path = request.data.get('file_path')
-        resolution_content = request.data.get('resolution_content')
-        conflict_type = request.data.get('conflict_type', 'text')
+        # Validate input using serializer
+        serializer = ResolveConflictSerializer(data=request.data)
+        if not serializer.is_valid():
+            return validation_error_response(serializer.errors, "EDITOR-RESOLVE-VAL01")
 
-        if not all([session_id, file_path, resolution_content]):
-            return error_response(
-                message="Missing required fields",
-                error_code="EDITOR-RESOLVE-VAL01",
-                status_code=status.HTTP_400_BAD_REQUEST,
-                details={
-                    'required_fields': ['session_id', 'file_path', 'resolution_content'],
-                    'missing': [f for f in ['session_id', 'file_path', 'resolution_content']
-                               if not request.data.get(f)]
-                }
-            )
+        data = serializer.validated_data
+        session_id = data['session_id']
+        file_path = data['file_path']
+        resolution_content = data['resolution_content']
+        conflict_type = data.get('conflict_type', 'text')
 
         try:
             # Get edit session
@@ -1061,20 +1031,14 @@ class ResolveConflictAPIView(APIView):
                 temp_path = Path(f'/tmp/{uuid.uuid4()}.tmp')
                 temp_path.write_bytes(theirs_content)
                 resolution_content = str(temp_path)
-                logger.info(f'Prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
-
-            # User info
-            user_info = {
-                'name': session.user.get_full_name() or session.user.username if session.user else 'Unknown',
-                'email': session.user.email if session.user else 'unknown@example.com'
-            }
+                logger.info(f'User {session.user.id} ({session.user.username}) prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
 
             repo = get_repository()
             result = repo.resolve_conflict(
                 branch_name=session.branch_name,
                 file_path=file_path,
                 resolution_content=resolution_content,
-                user_info=user_info,
+                user_info=get_user_info_for_commit(session.user),
                 is_binary=is_binary
             )
 
@@ -1083,7 +1047,7 @@ class ResolveConflictAPIView(APIView):
                 # Mark session as inactive
                 session.mark_inactive()
 
-                logger.info(f'Conflict resolved and merged for session {session_id}: {file_path} [EDITOR-CONFLICT06]')
+                logger.info(f'User {session.user.id} ({session.user.username}) resolved conflict and merged for session {session_id}: {file_path} [EDITOR-CONFLICT06]')
 
                 return success_response(
                     data={
@@ -1094,7 +1058,7 @@ class ResolveConflictAPIView(APIView):
                 )
             else:
                 # Conflict resolution applied but still has conflicts
-                logger.warning(f'Conflict resolution incomplete for session {session_id}: {file_path} [EDITOR-CONFLICT07]')
+                logger.warning(f'User {session.user.id} ({session.user.username}) conflict resolution incomplete for session {session_id}: {file_path} [EDITOR-CONFLICT07]')
 
                 return Response({
                     'success': True,
@@ -1133,14 +1097,13 @@ class DeleteFileAPIView(APIView):
 
     POST /editor/api/delete-file/
     {
-        "user_id": 1,
         "file_path": "docs/page.md",
         "commit_message": "Delete old file"  // optional
     }
 
     AIDEV-NOTE: file-delete-api; Deletes files from main branch and triggers static rebuild
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -1154,31 +1117,24 @@ class DeleteFileAPIView(APIView):
             )
 
         validated_data = serializer.validated_data
-        user_id = validated_data['user_id']
         file_path = validated_data['file_path']
         commit_message = validated_data.get('commit_message', f"Delete {file_path}")
 
         try:
-            # Get user for logging
-            user = User.objects.filter(id=user_id).first()
-
-            # Get user info for git commit
-            user_info = {
-                'name': user.get_full_name() or user.username if user else 'Unknown',
-                'email': user.email if user else 'unknown@example.com'
-            }
+            # Get authenticated user
+            user = request.user
 
             # Delete file from repository
             repo = get_repository()
             result = repo.delete_file(
                 file_path=file_path,
                 commit_message=commit_message,
-                user_info=user_info,
+                user_info=get_user_info_for_commit(user),
                 user=user,
                 branch_name='main'
             )
 
-            logger.info(f'File deleted successfully: {file_path} [EDITOR-DELETE01]')
+            logger.info(f'User {user.id} ({user.username}) deleted file: {file_path} [EDITOR-DELETE01]')
 
             # Trigger partial rebuild for directory listings
             logger.info(f'Triggering partial rebuild after file deletion [EDITOR-DELETE-REBUILD01]')
@@ -1217,21 +1173,13 @@ class DeleteFileAPIView(APIView):
                 message=f"File '{file_path}' deleted successfully"
             )
 
-        except User.DoesNotExist:
-            logger.error(f'User not found: {user_id} [EDITOR-DELETE-NOTFOUND]')
-            return error_response(
-                message=f"User {user_id} not found",
-                error_code="EDITOR-DELETE-NOTFOUND",
-                status_code=status.HTTP_404_NOT_FOUND,
-                details={'user_id': user_id}
-            )
         except GitRepositoryError as e:
             logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
             return error_response(
-                message=f"Failed to delete file: {str(e)}",
+                message="Failed to delete file. Please try again.",
                 error_code="EDITOR-DELETE03",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                details={'file_path': file_path, 'error': str(e)}
+                details={'file_path': file_path}
             )
         except Exception as e:
             response, should_rollback = handle_exception(
@@ -1252,7 +1200,7 @@ class DiscardDraftAPIView(APIView):
         "session_id": 123
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -1273,7 +1221,7 @@ class DiscardDraftAPIView(APIView):
 
             # Mark session as inactive
             session.mark_inactive()
-            logger.info(f'Discarded draft session {session_id} for {file_path} [EDITOR-DISCARD01]')
+            logger.info(f'User {session.user.id} ({session.user.username}) discarded draft session {session_id} for {file_path} [EDITOR-DISCARD01]')
 
             # Try to delete the draft branch
             try:
@@ -1282,7 +1230,7 @@ class DiscardDraftAPIView(APIView):
                 repo.repo.heads.main.checkout()
                 # Delete the draft branch
                 repo.repo.delete_head(branch_name, force=True)
-                logger.info(f'Deleted draft branch {branch_name} [EDITOR-DISCARD02]')
+                logger.info(f'User {session.user.id} ({session.user.username}) deleted draft branch {branch_name} [EDITOR-DISCARD02]')
             except Exception as e:
                 # Branch deletion is not critical - session is already inactive
                 logger.warning(f'Failed to delete branch {branch_name}: {e} [EDITOR-DISCARD03]')

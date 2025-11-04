@@ -236,7 +236,6 @@
         sessionId: null,
         branchName: null,
         filePath: '{{ file_path }}',
-        userId: {{ user.id|default:"1" }},
         lastSaved: null,
         modified: false,
         autoSaveTimer: null,
@@ -382,7 +381,6 @@
 
         try {
             const response = await axios.post(`${API_BASE}/start/`, {
-                user_id: editorState.userId,
                 file_path: editorState.filePath
             });
 
@@ -686,7 +684,6 @@
         const targetPath = lastSlashIndex > 0 ? filePath.substring(0, lastSlashIndex) : '';
 
         const formData = new FormData();
-        formData.append('user_id', editorState.userId);
         formData.append('file', file);
         formData.append('target_path', targetPath);
         formData.append('description', description || '');
