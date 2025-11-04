@@ -10,7 +10,6 @@ from django.contrib.auth.models import User
 
 class StartEditSerializer(serializers.Serializer):
     """Serializer for starting an edit session."""
-    user_id = serializers.IntegerField(required=True, min_value=1)
     file_path = serializers.CharField(required=True, max_length=1024)
 
     def validate_file_path(self, value):
@@ -111,7 +110,6 @@ class UploadFileSerializer(serializers.Serializer):
 
 class QuickUploadFileSerializer(serializers.Serializer):
     """Serializer for quick file upload without edit session."""
-    user_id = serializers.IntegerField(required=True, min_value=1)
     file = serializers.FileField(required=True)
     target_path = serializers.CharField(required=False, allow_blank=True, max_length=512, default="files")
     description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
@@ -140,7 +138,6 @@ class QuickUploadFileSerializer(serializers.Serializer):
 
 class DeleteFileSerializer(serializers.Serializer):
     """Serializer for file deletion."""
-    user_id = serializers.IntegerField(required=True, min_value=1)
     file_path = serializers.CharField(required=True, max_length=1024)
     commit_message = serializers.CharField(required=False, allow_blank=True, max_length=500)
 

@@ -7,7 +7,7 @@ AIDEV-NOTE: editor-api; REST API for markdown editing workflow with standardized
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.permissions import IsAuthenticatedOrReadOnly, IsAuthenticated
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.db import transaction, IntegrityError
@@ -90,11 +90,10 @@ class StartEditAPIView(APIView):
 
     POST /api/editor/start/
     {
-        "user_id": 123,
         "file_path": "docs/getting-started.md"
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -105,15 +104,11 @@ class StartEditAPIView(APIView):
             return validation_error_response(serializer.errors, "EDITOR-START-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         file_path = data['file_path']
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
+            # Get authenticated user
+            user = request.user
 
             # Check if user already has an active session for this file
             existing_session = EditSession.get_user_session_for_file(user, file_path)
@@ -170,7 +165,7 @@ class StartEditAPIView(APIView):
 
             # Create new draft branch
             repo = get_repository()
-            branch_result = repo.create_draft_branch(user_id, user=user)
+            branch_result = repo.create_draft_branch(user.id, user=user)
 
             # Create edit session with race condition handling (fixes #22)
             # AIDEV-NOTE: race-condition-handling; Handle concurrent session creation attempts
@@ -797,12 +792,11 @@ class QuickUploadFileAPIView(APIView):
 
     POST /api/editor/quick-upload-file/
     Form data:
-    - user_id: 123
     - file: <file>
     - target_path: "files" (optional, default: "files")
     - description: "File description" (optional)
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -813,17 +807,13 @@ class QuickUploadFileAPIView(APIView):
             return validation_error_response(serializer.errors, "EDITOR-QUICK-UPLOAD-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         uploaded_file = data['file']
         target_path = data.get('target_path', 'files')
         description = data.get('description', '')
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
+            # Get authenticated user
+            user = request.user
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -889,7 +879,7 @@ class QuickUploadFileAPIView(APIView):
             # Generate markdown link syntax for the file
             markdown_syntax = f"[{uploaded_file.name}]({file_path})"
 
-            logger.info(f'Quick uploaded file for user {user_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
+            logger.info(f'Quick uploaded file for user {user.id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
 
             return success_response(
                 data={
@@ -1133,14 +1123,13 @@ class DeleteFileAPIView(APIView):
 
     POST /editor/api/delete-file/
     {
-        "user_id": 1,
         "file_path": "docs/page.md",
         "commit_message": "Delete old file"  // optional
     }
 
     AIDEV-NOTE: file-delete-api; Deletes files from main branch and triggers static rebuild
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):
@@ -1154,18 +1143,17 @@ class DeleteFileAPIView(APIView):
             )
 
         validated_data = serializer.validated_data
-        user_id = validated_data['user_id']
         file_path = validated_data['file_path']
         commit_message = validated_data.get('commit_message', f"Delete {file_path}")
 
         try:
-            # Get user for logging
-            user = User.objects.filter(id=user_id).first()
+            # Get authenticated user
+            user = request.user
 
             # Get user info for git commit
             user_info = {
-                'name': user.get_full_name() or user.username if user else 'Unknown',
-                'email': user.email if user else 'unknown@example.com'
+                'name': user.get_full_name() or user.username,
+                'email': user.email
             }
 
             # Delete file from repository
@@ -1217,14 +1205,6 @@ class DeleteFileAPIView(APIView):
                 message=f"File '{file_path}' deleted successfully"
             )
 
-        except User.DoesNotExist:
-            logger.error(f'User not found: {user_id} [EDITOR-DELETE-NOTFOUND]')
-            return error_response(
-                message=f"User {user_id} not found",
-                error_code="EDITOR-DELETE-NOTFOUND",
-                status_code=status.HTTP_404_NOT_FOUND,
-                details={'user_id': user_id}
-            )
         except GitRepositoryError as e:
             logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
             return error_response(

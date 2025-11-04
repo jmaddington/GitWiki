@@ -1021,3 +1021,120 @@ class QuickUploadFileAPITest(TestCase):
         self.assertIn(response.status_code, [400, 422])
         data = json.loads(response.content)
         self.assertIn('error', data)
+
+
+class EditorAuthenticationTest(TestCase):
+    """Tests for authentication requirements on destructive operations."""
+
+    def setUp(self):
+        """Set up test environment with repository."""
+        self.client = Client()
+        self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+
+        # Create temporary repository
+        self.temp_repo_dir = Path(tempfile.mkdtemp())
+        self.old_repo_path = settings.WIKI_REPO_PATH
+        settings.WIKI_REPO_PATH = self.temp_repo_dir
+
+        self.repo = GitRepository(repo_path=self.temp_repo_dir)
+
+        # Set permission level to allow authenticated edits
+        from git_service.models import Configuration
+        Configuration.set_config('permission_level', 'open')
+
+        # Create initial content
+        self.repo.commit_changes(
+            branch_name='main',
+            file_path='test.md',
+            content='# Test Page\nContent',
+            commit_message='Initial commit',
+            user_info={'name': 'Admin', 'email': 'admin@example.com'},
+            user=self.user
+        )
+
+    def tearDown(self):
+        """Clean up temporary directory."""
+        if self.temp_repo_dir.exists():
+            shutil.rmtree(self.temp_repo_dir)
+
+        settings.WIKI_REPO_PATH = self.old_repo_path
+
+    def test_unauthenticated_start_edit(self):
+        """Test that unauthenticated users cannot start edit sessions."""
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+
+        # API returns 403 or redirects to login (302)
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_start_edit(self):
+        """Test that authenticated users can start edit sessions (not blocked by auth)."""
+        self.client.force_login(self.user)
+
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+
+        # Should not be 302 (redirect) or 403 (forbidden) - authentication passed
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_delete_file(self):
+        """Test that unauthenticated users cannot delete files."""
+        response = self.client.post('/editor/api/delete-file/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+
+        # API returns 403 or redirects to login (302)
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_delete_file(self):
+        """Test that authenticated users can delete files."""
+        self.client.force_login(self.user)
+
+        response = self.client.post('/editor/api/delete-file/', {
+            'file_path': 'test.md',
+            'commit_message': 'Delete test file'
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+
+    def test_unauthenticated_quick_upload(self):
+        """Test that unauthenticated users cannot upload files."""
+        from io import BytesIO
+
+        test_file = BytesIO(b'Test content')
+        test_file.name = 'test.txt'
+
+        response = self.client.post(
+            '/editor/api/quick-upload-file/',
+            data={
+                'file': test_file,
+                'target_path': 'files'
+            }
+        )
+
+        # API returns 403 or redirects to login (302)
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_quick_upload(self):
+        """Test that authenticated users can upload files (not blocked by auth)."""
+        self.client.force_login(self.user)
+
+        from io import BytesIO
+
+        test_file = BytesIO(b'Test content')
+        test_file.name = 'test.txt'
+
+        response = self.client.post(
+            '/editor/api/quick-upload-file/',
+            data={
+                'file': test_file,
+                'target_path': 'files'
+            }
+        )
+
+        # Should not be 302 (redirect) or 403 (forbidden) - authentication passed
+        self.assertNotIn(response.status_code, [302, 403])
