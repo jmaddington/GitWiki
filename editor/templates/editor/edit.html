@@ -67,7 +67,7 @@
                     </div>
 
                     <!-- Markdown Editor -->
-                    <textarea id="markdown-editor"></textarea>
+                    <div id="markdown-editor"></div>
 
                     <!-- Hidden file input for image upload -->
                     <input type="file" id="image-file-input" accept="image/png,image/jpeg,image/jpg,image/webp" style="display: none;">
@@ -153,7 +153,7 @@
 
 {% block extra_js %}
 <script>
-    // AIDEV-NOTE: editor-client; SimpleMDE editor with auto-save and clipboard paste
+    // AIDEV-NOTE: editor-client; Toast UI editor with auto-save and clipboard paste
 
     // Configuration
     const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
@@ -221,46 +221,101 @@
         lastSaved: null,
         modified: false,
         autoSaveTimer: null,
-        simplemde: null
+        editor: null
     };
 
-    // Initialize SimpleMDE
+    // Initialize Toast UI Editor
     document.addEventListener('DOMContentLoaded', function() {
-        initializeEditor();
-        startEditSession();
+        console.log('DOM loaded, initializing editor...');
+        try {
+            initializeEditor();
+            startEditSession();
+        } catch (error) {
+            console.error('Failed to initialize:', error);
+            updateStatus('error', 'Failed to initialize editor: ' + error.message);
+        }
     });
 
     function initializeEditor() {
-        editorState.simplemde = new SimpleMDE({
-            element: document.getElementById('markdown-editor'),
-            spellChecker: false,
-            autosave: {
-                enabled: false // We'll handle auto-save ourselves
-            },
+        console.log('Creating Toast UI Editor instance...');
+        console.log('Checking for Toast UI global object...');
+        console.log('typeof toastui:', typeof toastui);
+        console.log('typeof window.toastui:', typeof window.toastui);
+        console.log('All window properties containing "toast":', Object.keys(window).filter(k => k.toLowerCase().includes('toast')));
+
+        // Check if Toast UI is loaded
+        if (typeof toastui === 'undefined') {
+            throw new Error('Toast UI Editor library not loaded. Check CDN connection.');
+        }
+
+        editorState.editor = new toastui.Editor({
+            el: document.querySelector('#markdown-editor'),
+            height: '600px',
+            initialEditType: 'markdown',
+            previewStyle: 'vertical',
             placeholder: 'Start writing your markdown content here...',
-            status: ['lines', 'words', 'cursor'],
-            toolbar: [
-                'bold', 'italic', 'heading', '|',
-                'quote', 'unordered-list', 'ordered-list', '|',
-                'link', 'image', '|',
-                'preview', 'side-by-side', 'fullscreen', '|',
-                'guide'
+            usageStatistics: false,
+            autofocus: false,
+            hideModeSwitch: false,
+
+            toolbarItems: [
+                ['heading', 'bold', 'italic', 'strike'],
+                ['hr', 'quote'],
+                ['ul', 'ol', 'task'],
+                ['table', 'image', 'link'],
+                ['code', 'codeblock']
             ],
-            shortcuts: {
-                'togglePreview': 'Ctrl-P',
-                'toggleSideBySide': null,
-                'toggleFullScreen': 'F11'
+
+            events: {
+                change: () => {
+                    editorState.modified = true;
+                    updateStatus('modified', 'Modified (not saved)');
+                },
+                load: () => {
+                    console.log('Toast UI Editor loaded successfully');
+                }
+            },
+
+            hooks: {
+                addImageBlobHook: async (blob, callback) => {
+                    if (!editorState.sessionId) {
+                        showToast('Please start an edit session first', 'warning', 3000);
+                        return false;
+                    }
+
+                    updateStatus('loading', 'Uploading image...');
+
+                    const formData = new FormData();
+                    formData.append('session_id', editorState.sessionId);
+                    formData.append('image', blob);
+                    formData.append('alt_text', blob.name || 'Pasted image');
+
+                    try {
+                        const response = await axios.post(`${API_BASE}/upload-image/`, formData, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+
+                        const data = response.data.data;
+
+                        // Toast UI expects URL and alt text, handles markdown insertion automatically
+                        // API returns 'path' not 'image_url'
+                        callback('/' + data.path, data.alt_text || blob.name || '');
+
+                        updateStatus('saved', 'Image uploaded');
+                        editorState.modified = true;
+
+                        showToast(`Image uploaded! Size: ${(data.file_size_bytes / 1024).toFixed(1)} KB`, 'success', 3000);
+
+                    } catch (error) {
+                        console.error('Image upload failed:', error);
+                        updateStatus('error', 'Upload failed');
+                        showToast('Error: ' + extractErrorMessage(error, 'Failed to upload image'), 'error', 5000);
+                    }
+
+                    return false; // Prevent default base64 encoding
+                }
             }
         });
-
-        // Track modifications
-        editorState.simplemde.codemirror.on('change', function() {
-            editorState.modified = true;
-            updateStatus('modified', 'Modified (not saved)');
-        });
-
-        // Handle clipboard paste for images
-        editorState.simplemde.codemirror.on('paste', handlePaste);
 
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
@@ -286,7 +341,7 @@
             editorState.branchName = data.branch_name;
 
             // Set editor content
-            editorState.simplemde.value(data.content);
+            editorState.editor.setMarkdown(data.content);
 
             // Update UI
             document.getElementById('session-id').textContent = data.session_id;
@@ -322,7 +377,7 @@
     async function saveDraft() {
         if (!editorState.sessionId) return;
 
-        const content = editorState.simplemde.value();
+        const content = editorState.editor.getMarkdown();
 
         // Save to localStorage
         localStorage.setItem(LOCALSTORAGE_KEY, content);
@@ -378,7 +433,7 @@
         updateStatus('loading', 'Committing...');
 
         try {
-            const content = editorState.simplemde.value();
+            const content = editorState.editor.getMarkdown();
             const response = await axios.post(`${API_BASE}/commit/`, {
                 session_id: editorState.sessionId,
                 content: content,
@@ -415,7 +470,7 @@
         updateStatus('loading', 'Publishing...');
 
         try {
-            const content = editorState.simplemde.value();
+            const content = editorState.editor.getMarkdown();
             const response = await axios.post(`${API_BASE}/publish/`, {
                 session_id: editorState.sessionId,
                 content: content,
@@ -505,9 +560,7 @@
             const data = response.data.data;  // API returns {success: true, data: {...}}
 
             // Insert markdown at cursor
-            const cm = editorState.simplemde.codemirror;
-            const cursor = cm.getCursor();
-            cm.replaceRange(data.markdown + '\n', cursor);
+            editorState.editor.insertText(data.markdown + '\n');
 
             updateStatus('saved', 'Image uploaded');
             editorState.modified = true;
@@ -552,10 +605,8 @@
             const data = response.data.data;  // API returns {success: true, data: {...}}
 
             // Insert markdown at cursor if editor is available
-            if (editorState.simplemde) {
-                const cm = editorState.simplemde.codemirror;
-                const cursor = cm.getCursor();
-                cm.replaceRange(data.markdown + '\n', cursor);
+            if (editorState.editor) {
+                editorState.editor.insertText(data.markdown + '\n');
                 editorState.modified = true;
             }
 
@@ -574,28 +625,11 @@
         }
     }
 
-    // Handle clipboard paste for images
-    async function handlePaste(cm, event) {
-        const items = (event.clipboardData || event.originalEvent.clipboardData).items;
-
-        for (let item of items) {
-            if (item.type.indexOf('image') !== -1) {
-                event.preventDefault();
-
-                const blob = item.getAsFile();
-                const altText = prompt('Enter alt text for the image (optional):') || 'Pasted image';
-
-                await uploadImage(blob, altText);
-                break;
-            }
-        }
-    }
-
     function checkLocalStorage() {
         const saved = localStorage.getItem(LOCALSTORAGE_KEY);
-        if (saved && saved !== editorState.simplemde.value()) {
+        if (saved && saved !== editorState.editor.getMarkdown()) {
             if (confirm('Found unsaved changes from a previous session. Restore them?')) {
-                editorState.simplemde.value(saved);
+                editorState.editor.setMarkdown(saved);
                 editorState.modified = true;
                 updateStatus('modified', 'Restored from localStorage');
             } else {
