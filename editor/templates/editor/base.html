@@ -115,6 +115,13 @@
                         </a>
                     </li>
                     {% endif %}
+                    {% if user.is_superuser %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="/api/git/sync/">
+                            <i class="fas fa-sync"></i> Sync
+                        </a>
+                    </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'logout' %}">
                             <i class="fas fa-sign-out-alt"></i> Logout
