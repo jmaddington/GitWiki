@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime
 
 from .models import EditSession
+from config.rate_limit import rate_limit
 from .serializers import (
     StartEditSerializer,
     SaveDraftSerializer,
@@ -684,8 +685,9 @@ class UploadFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @transaction.atomic
+    @rate_limit(max_requests=5, window_seconds=60)
     def post(self, request):
-        """Upload arbitrary file with atomic transaction support."""
+        """Upload arbitrary file with atomic transaction support (rate limited: 5/min)."""
         # Validate input
         serializer = UploadFileSerializer(data=request.data)
         if not serializer.is_valid():
@@ -701,10 +703,15 @@ class UploadFileAPIView(APIView):
             session = EditSession.objects.get(id=session_id, is_active=True)
 
             # Generate unique filename with timestamp
+            # AIDEV-NOTE: filename-sanitization; Remove dangerous characters from user input
+            import re
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
             file_ext = uploaded_file.name.split('.')[-1].lower() if '.' in uploaded_file.name else ''
             unique_id = str(uuid.uuid4())[:8]
-            base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
+            raw_base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
+            # Sanitize filename: only allow alphanumeric, hyphens, underscores, and dots
+            safe_base_name = re.sub(r'[^\w\-\.]', '_', raw_base_name)
+            base_name = safe_base_name if safe_base_name else 'file'
             filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
 
             # AIDEV-NOTE: file-path-structure; Arbitrary files stored in files/{branch_name}/
@@ -795,8 +802,9 @@ class QuickUploadFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @transaction.atomic
+    @rate_limit(max_requests=5, window_seconds=60)
     def post(self, request):
-        """Upload file and commit directly to main branch."""
+        """Upload file and commit directly to main branch (rate limited: 5/min)."""
         # Check authentication
         if not request.user.is_authenticated:
             logger.warning('Unauthenticated user attempted quick file upload [EDITOR-AUTH02]')
@@ -820,10 +828,15 @@ class QuickUploadFileAPIView(APIView):
         try:
 
             # Generate unique filename with timestamp
+            # AIDEV-NOTE: filename-sanitization; Remove dangerous characters from user input
+            import re
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
             file_ext = uploaded_file.name.split('.')[-1].lower() if '.' in uploaded_file.name else ''
             unique_id = str(uuid.uuid4())[:8]
-            base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
+            raw_base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
+            # Sanitize filename: only allow alphanumeric, hyphens, underscores, and dots
+            safe_base_name = re.sub(r'[^\w\-\.]', '_', raw_base_name)
+            base_name = safe_base_name if safe_base_name else 'file'
             filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
 
             # AIDEV-NOTE: quick-upload-path; Files stored in target_path (default: files/)
@@ -1136,8 +1149,9 @@ class DeleteFileAPIView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @transaction.atomic
+    @rate_limit(max_requests=10, window_seconds=60)
     def post(self, request):
-        """Delete file with atomic transaction support."""
+        """Delete file with atomic transaction support (rate limited: 10/min)."""
         # Check authentication
         if not request.user.is_authenticated:
             logger.warning('Unauthenticated user attempted file deletion [EDITOR-AUTH03]')

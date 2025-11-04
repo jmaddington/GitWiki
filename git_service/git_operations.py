@@ -12,7 +12,6 @@ AIDEV-NOTE: atomic-ops; All operations must be atomic and rollback-safe
 """
 
 import os
-import re
 import shutil
 import uuid
 import json
@@ -1213,6 +1212,7 @@ class GitRepository:
                 try:
                     # Build regex pattern for all images: (image1|image2|image3)
                     # Escape special regex characters in filenames
+                    import re  # Local import for regex escaping
                     escaped_images = [re.escape(img) for img in changed_images]
                     pattern = '|'.join(escaped_images)
                     grep_result = self.repo.git.grep('-l', '-E', pattern, '--', '*.md')

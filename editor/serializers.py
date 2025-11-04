@@ -94,8 +94,8 @@ class UploadFileSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
 
     def validate_file(self, value):
-        """Validate file size (any file type allowed)."""
-        # AIDEV-NOTE: arbitrary-file-upload; Allow any file type up to 100MB
+        """Validate file size and type."""
+        # AIDEV-NOTE: arbitrary-file-upload; Allow any file type up to 100MB except executables
         max_size_mb = 100
         max_size_bytes = max_size_mb * 1024 * 1024
 
@@ -104,6 +104,25 @@ class UploadFileSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 f"File too large. Maximum size: {max_size_mb}MB"
             )
+
+        # AIDEV-NOTE: file-type-validation; Block dangerous executable file types
+        # Blacklist of potentially dangerous file extensions
+        dangerous_extensions = {
+            'exe', 'bat', 'cmd', 'com', 'pif', 'scr', 'vbs', 'js', 'jar',
+            'app', 'deb', 'rpm', 'dmg', 'pkg', 'run', 'sh', 'bash', 'csh',
+            'ksh', 'zsh', 'out', 'elf', 'bin', 'gadget', 'msi', 'msp',
+            'scf', 'lnk', 'inf', 'reg'
+        }
+
+        # Get file extension
+        filename = value.name.lower() if value.name else ''
+        if '.' in filename:
+            ext = filename.rsplit('.', 1)[-1]
+            if ext in dangerous_extensions:
+                raise serializers.ValidationError(
+                    f"File type '.{ext}' is not allowed for security reasons. "
+                    f"Executable and script files are blocked."
+                )
 
         return value
 
@@ -115,8 +134,8 @@ class QuickUploadFileSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
 
     def validate_file(self, value):
-        """Validate file size (any file type allowed)."""
-        # AIDEV-NOTE: quick-file-upload; Allow any file type up to 100MB
+        """Validate file size and type."""
+        # AIDEV-NOTE: quick-file-upload; Allow any file type up to 100MB except executables
         max_size_mb = 100
         max_size_bytes = max_size_mb * 1024 * 1024
 
@@ -124,6 +143,25 @@ class QuickUploadFileSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 f"File too large. Maximum size: {max_size_mb}MB"
             )
+
+        # AIDEV-NOTE: file-type-validation; Block dangerous executable file types
+        # Blacklist of potentially dangerous file extensions
+        dangerous_extensions = {
+            'exe', 'bat', 'cmd', 'com', 'pif', 'scr', 'vbs', 'js', 'jar',
+            'app', 'deb', 'rpm', 'dmg', 'pkg', 'run', 'sh', 'bash', 'csh',
+            'ksh', 'zsh', 'out', 'elf', 'bin', 'gadget', 'msi', 'msp',
+            'scf', 'lnk', 'inf', 'reg'
+        }
+
+        # Get file extension
+        filename = value.name.lower() if value.name else ''
+        if '.' in filename:
+            ext = filename.rsplit('.', 1)[-1]
+            if ext in dangerous_extensions:
+                raise serializers.ValidationError(
+                    f"File type '.{ext}' is not allowed for security reasons. "
+                    f"Executable and script files are blocked."
+                )
 
         return value
 

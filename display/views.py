@@ -851,8 +851,8 @@ def attachment_page(request, file_path):
             logger.warning(f'Attempted to view directory as attachment: {clean_path} [DISPLAY-ATTACH03]')
             raise Http404("Cannot view directory as attachment")
 
-        # Prevent viewing hidden files
-        if any(part.startswith('.') for part in repo_path.parts):
+        # Prevent viewing hidden files (check only the filename, not parent directories)
+        if repo_path.name.startswith('.'):
             logger.warning(f'Attempted to view hidden file: {clean_path} [DISPLAY-ATTACH04]')
             raise Http404("Cannot view hidden files")
 

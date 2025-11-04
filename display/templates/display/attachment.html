@@ -117,8 +117,9 @@
 
     if (deleteBtn) {
         deleteBtn.addEventListener('click', async function() {
-            // Confirm deletion
-            if (!confirm('Are you sure you want to delete "{{ file_name }}"? This will commit the deletion to the repository.')) {
+            // Confirm deletion - use data from server-side with escaping
+            const fileName = '{{ file_name|escapejs }}';
+            if (!confirm(`Are you sure you want to delete "${fileName}"? This will commit the deletion to the repository.`)) {
                 return;
             }
 
