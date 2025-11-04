@@ -291,6 +291,8 @@ class EditorAPITest(TestCase):
         """Set up test environment with repository."""
         self.client = Client()
         self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        # Authenticate the user for API requests
+        self.client.force_login(self.user)
 
         # Create temporary repository
         self.temp_repo_dir = Path(tempfile.mkdtemp())
@@ -318,8 +320,7 @@ class EditorAPITest(TestCase):
 
     def test_start_edit_new_session(self):
         """Test starting a new edit session."""
-        response = self.client.post('/api/editor/start/', {
-            'user_id': self.user.id,
+        response = self.client.post('/editor/api/start/', {
             'file_path': 'test.md'
         }, content_type='application/json')
 
@@ -341,8 +342,7 @@ class EditorAPITest(TestCase):
         )
 
         # Start edit again - should resume
-        response = self.client.post('/api/editor/start/', {
-            'user_id': self.user.id,
+        response = self.client.post('/editor/api/start/', {
             'file_path': 'test.md'
         }, content_type='application/json')
 
@@ -355,8 +355,7 @@ class EditorAPITest(TestCase):
 
     def test_start_edit_validation_error(self):
         """Test start edit with invalid data."""
-        response = self.client.post('/api/editor/start/', {
-            'user_id': self.user.id
+        response = self.client.post('/editor/api/start/', {
             # Missing file_path
         }, content_type='application/json')
 
@@ -378,7 +377,7 @@ class EditorAPITest(TestCase):
         self.repo.create_draft_branch(user_id=self.user.id, user=self.user)
 
         # Save draft
-        response = self.client.post('/api/editor/save-draft/', {
+        response = self.client.post('/editor/api/save-draft/', {
             'session_id': session.id,
             'content': '# Test Content\nDraft text'
         }, content_type='application/json')
@@ -402,7 +401,7 @@ class EditorAPITest(TestCase):
         )
 
         # Commit draft
-        response = self.client.post('/api/editor/commit/', {
+        response = self.client.post('/editor/api/commit/', {
             'session_id': session.id,
             'content': '# Committed Content',
             'commit_message': 'Test commit',
@@ -441,7 +440,7 @@ class EditorAPITest(TestCase):
         )
 
         # Publish
-        response = self.client.post('/api/editor/publish/', {
+        response = self.client.post('/editor/api/publish/', {
             'session_id': session.id
         }, content_type='application/json')
 
@@ -457,7 +456,7 @@ class EditorAPITest(TestCase):
 
     def test_validate_markdown(self):
         """Test markdown validation endpoint."""
-        response = self.client.post('/api/editor/validate/', {
+        response = self.client.post('/editor/api/validate/', {
             'content': '# Valid Markdown\nWith content'
         }, content_type='application/json')
 
@@ -469,7 +468,7 @@ class EditorAPITest(TestCase):
 
     def test_conflicts_list(self):
         """Test listing conflicts."""
-        response = self.client.get('/api/editor/conflicts/')
+        response = self.client.get('/editor/api/conflicts/')
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -521,7 +520,7 @@ class EditorAPITest(TestCase):
         )
 
         # Get versions
-        response = self.client.get(f'/api/editor/conflict-versions/{session.id}/conflict.md/')
+        response = self.client.get(f'/editor/api/conflict-versions/{session.id}/conflict.md/')
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -572,7 +571,7 @@ class EditorAPITest(TestCase):
         )
 
         # Resolve
-        response = self.client.post('/api/editor/resolve-conflict/', {
+        response = self.client.post('/editor/api/resolve-conflict/', {
             'session_id': session.id,
             'file_path': 'resolve.md',
             'resolution_content': '# Resolved version',
@@ -626,6 +625,7 @@ class EditorViewsTest(TestCase):
         """Set up test environment."""
         self.client = Client()
         self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.client.force_login(self.user)
 
     def test_edit_page_view(self):
         """Test edit page renders."""
@@ -680,6 +680,7 @@ class ImageUploadTest(TestCase):
         """Set up test environment."""
         self.client = Client()
         self.user = User.objects.create_user('testuser', 'test@example.com', 'password')
+        self.client.force_login(self.user)
 
         # Create temporary repository
         self.temp_repo_dir = Path(tempfile.mkdtemp())
@@ -707,7 +708,7 @@ class ImageUploadTest(TestCase):
         )
 
         # Test validation error (no file)
-        response = self.client.post('/api/editor/upload-image/', {
+        response = self.client.post('/editor/api/upload-image/', {
             'session_id': session.id
         }, content_type='application/json')
 

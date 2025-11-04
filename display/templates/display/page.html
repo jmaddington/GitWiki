@@ -289,7 +289,6 @@
             quickUploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
 
             const formData = new FormData();
-            formData.append('user_id', 1); // Default user for now
             formData.append('file', file);
             // Upload to the current directory or parent directory
             formData.append('target_path', '{{ parent_path|default:"" }}');
@@ -359,7 +358,6 @@
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                     },
                     body: JSON.stringify({
-                        user_id: 1,  // Default user
                         file_path: filePath,
                         commit_message: `Delete ${fileName}`
                     })
@@ -413,7 +411,6 @@
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                     },
                     body: JSON.stringify({
-                        user_id: 1,  // Default user
                         file_path: filePath,
                         commit_message: `Delete ${fileName}`
                     })

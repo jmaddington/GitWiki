@@ -89,7 +89,6 @@ class StartEditAPIView(APIView):
 
     POST /api/editor/start/
     {
-        "user_id": 123,
         "file_path": "docs/getting-started.md"
     }
     """
@@ -98,21 +97,25 @@ class StartEditAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         """Start an edit session with atomic transaction support."""
+        # Check authentication
+        if not request.user.is_authenticated:
+            logger.warning('Unauthenticated user attempted to start edit session [EDITOR-AUTH01]')
+            return error_response(
+                message="Authentication required to edit files",
+                error_code="EDITOR-AUTH01",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
         # Validate input
         serializer = StartEditSerializer(data=request.data)
         if not serializer.is_valid():
             return validation_error_response(serializer.errors, "EDITOR-START-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         file_path = data['file_path']
+        user = request.user
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
 
             # Check if user already has an active session for this file
             existing_session = EditSession.get_user_session_for_file(user, file_path)
@@ -158,7 +161,7 @@ class StartEditAPIView(APIView):
 
             # Create new draft branch
             repo = get_repository()
-            branch_result = repo.create_draft_branch(user_id, user=user)
+            branch_result = repo.create_draft_branch(user.id, user=user)
 
             # Create edit session with race condition handling (fixes #22)
             # AIDEV-NOTE: race-condition-handling; Handle concurrent session creation attempts
@@ -785,7 +788,6 @@ class QuickUploadFileAPIView(APIView):
 
     POST /api/editor/quick-upload-file/
     Form data:
-    - user_id: 123
     - file: <file>
     - target_path: "files" (optional, default: "files")
     - description: "File description" (optional)
@@ -795,23 +797,27 @@ class QuickUploadFileAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         """Upload file and commit directly to main branch."""
+        # Check authentication
+        if not request.user.is_authenticated:
+            logger.warning('Unauthenticated user attempted quick file upload [EDITOR-AUTH02]')
+            return error_response(
+                message="Authentication required to upload files",
+                error_code="EDITOR-AUTH02",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
         # Validate input
         serializer = QuickUploadFileSerializer(data=request.data)
         if not serializer.is_valid():
             return validation_error_response(serializer.errors, "EDITOR-QUICK-UPLOAD-VAL01")
 
         data = serializer.validated_data
-        user_id = data['user_id']
         uploaded_file = data['file']
         target_path = data.get('target_path', 'files')
         description = data.get('description', '')
+        user = request.user
 
         try:
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                id=user_id,
-                defaults={'username': f'user_{user_id}'}
-            )
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -877,7 +883,7 @@ class QuickUploadFileAPIView(APIView):
             # Generate markdown link syntax for the file
             markdown_syntax = f"[{uploaded_file.name}]({file_path})"
 
-            logger.info(f'Quick uploaded file for user {user_id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
+            logger.info(f'Quick uploaded file for user {user.id}: {filename} ({uploaded_file.size} bytes) [EDITOR-QUICK-UPLOAD01]')
 
             return success_response(
                 data={
@@ -1121,7 +1127,6 @@ class DeleteFileAPIView(APIView):
 
     POST /editor/api/delete-file/
     {
-        "user_id": 1,
         "file_path": "docs/page.md",
         "commit_message": "Delete old file"  // optional
     }
@@ -1133,6 +1138,15 @@ class DeleteFileAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         """Delete file with atomic transaction support."""
+        # Check authentication
+        if not request.user.is_authenticated:
+            logger.warning('Unauthenticated user attempted file deletion [EDITOR-AUTH03]')
+            return error_response(
+                message="Authentication required to delete files",
+                error_code="EDITOR-AUTH03",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
         serializer = DeleteFileSerializer(data=request.data)
 
         if not serializer.is_valid():
@@ -1142,18 +1156,15 @@ class DeleteFileAPIView(APIView):
             )
 
         validated_data = serializer.validated_data
-        user_id = validated_data['user_id']
         file_path = validated_data['file_path']
         commit_message = validated_data.get('commit_message', f"Delete {file_path}")
+        user = request.user
 
         try:
-            # Get user for logging
-            user = User.objects.filter(id=user_id).first()
-
             # Get user info for git commit
             user_info = {
-                'name': user.get_full_name() or user.username if user else 'Unknown',
-                'email': user.email if user else 'unknown@example.com'
+                'name': user.get_full_name() or user.username,
+                'email': user.email or f'{user.username}@gitwiki.local'
             }
 
             # Delete file from repository
@@ -1205,14 +1216,6 @@ class DeleteFileAPIView(APIView):
                 message=f"File '{file_path}' deleted successfully"
             )
 
-        except User.DoesNotExist:
-            logger.error(f'User not found: {user_id} [EDITOR-DELETE-NOTFOUND]')
-            return error_response(
-                message=f"User {user_id} not found",
-                error_code="EDITOR-DELETE-NOTFOUND",
-                status_code=status.HTTP_404_NOT_FOUND,
-                details={'user_id': user_id}
-            )
         except GitRepositoryError as e:
             logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
             return error_response(
