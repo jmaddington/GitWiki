@@ -883,7 +883,7 @@ def attachment_page(request, file_path):
             parent_path = ''
 
         # Get file URL for preview
-        file_url = f'/wiki/files/{clean_path}'
+        file_url = f'/wiki/file/{clean_path}'
 
         logger.info(f'Displaying attachment page for {clean_path} [DISPLAY-ATTACH05]')
 

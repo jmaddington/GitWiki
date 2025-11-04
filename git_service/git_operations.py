@@ -908,7 +908,70 @@ class GitRepository:
                 'history_summary': {'total_commits': 0, 'contributors': [], 'created': None, 'last_modified': None}
             }
 
-    def _markdown_to_html(self, content: str) -> Tuple[str, str]:
+    def _resolve_relative_paths(self, html_content: str, file_path: str) -> str:
+        """
+        Resolve relative image and link paths in HTML to absolute URLs.
+
+        AIDEV-NOTE: path-resolution; Converts relative paths to absolute /wiki/file/ URLs
+
+        Args:
+            html_content: HTML content with potentially relative paths
+            file_path: Path to the markdown file (e.g., 'Windows 10 EOL Upgrades/Windows 10 EOL Upgrades.md')
+
+        Returns:
+            HTML with resolved absolute paths
+        """
+        from pathlib import Path
+        from html.parser import HTMLParser
+        import re
+
+        # Get the directory containing the markdown file
+        file_dir = str(Path(file_path).parent) if file_path else ''
+        if file_dir == '.':
+            file_dir = ''
+
+        def resolve_path(url: str) -> str:
+            """Resolve a single URL path."""
+            # Skip absolute URLs (http://, https://, //, /)
+            if url.startswith(('http://', 'https://', '//', '/')):
+                return url
+
+            # Skip anchors and mailto
+            if url.startswith(('#', 'mailto:')):
+                return url
+
+            # Resolve relative path
+            if file_dir:
+                resolved = f'{file_dir}/{url}'
+            else:
+                resolved = url
+
+            # Normalize path (remove ./ and handle ../)
+            resolved = str(Path(resolved))
+
+            # Convert to absolute wiki URL
+            return f'/wiki/file/{resolved}'
+
+        # Process img src attributes
+        html_content = re.sub(
+            r'<img\s+([^>]*?)src=["\']([^"\']+)["\']([^>]*?)>',
+            lambda m: f'<img {m.group(1)}src="{resolve_path(m.group(2))}"{m.group(3)}>',
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        # Process a href attributes (for links to files, not wiki pages)
+        # Only process links to non-.md files to avoid breaking internal wiki links
+        html_content = re.sub(
+            r'<a\s+([^>]*?)href=["\']([^"\']+\.(?:png|jpg|jpeg|gif|svg|pdf|doc|docx|xls|xlsx|zip|tar|gz))["\']([^>]*?)>',
+            lambda m: f'<a {m.group(1)}href="{resolve_path(m.group(2))}"{m.group(3)}>',
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        return html_content
+
+    def _markdown_to_html(self, content: str, file_path: str = '') -> Tuple[str, str]:
         """
         Convert markdown to HTML with table of contents, with caching.
 
@@ -917,6 +980,7 @@ class GitRepository:
 
         Args:
             content: Markdown content
+            file_path: Path to markdown file for resolving relative paths (default: '')
 
         Returns:
             Tuple of (html_content, toc_html)
@@ -925,8 +989,10 @@ class GitRepository:
         import hashlib
 
         try:
-            # Create cache key from content hash
-            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+            # Create cache key from content hash and file path
+            # File path is important for cache key because same content in different locations needs different URLs
+            cache_data = f'{content}:{file_path}'
+            content_hash = hashlib.md5(cache_data.encode('utf-8')).hexdigest()
             cache_key = f'markdown:{content_hash}'
 
             # Check cache first
@@ -947,6 +1013,10 @@ class GitRepository:
 
             html_content = md.convert(content)
             toc_html = md.toc if hasattr(md, 'toc') else ''
+
+            # Resolve relative paths to absolute URLs
+            if file_path:
+                html_content = self._resolve_relative_paths(html_content, file_path)
 
             result = (html_content, toc_html)
 
@@ -1028,8 +1098,8 @@ class GitRepository:
                     md_path = temp_dir / md_file
                     md_content = md_path.read_text(encoding='utf-8')
 
-                    # Convert to HTML
-                    html_content, toc_html = self._markdown_to_html(md_content)
+                    # Convert to HTML with file path for resolving relative URLs
+                    html_content, toc_html = self._markdown_to_html(md_content, md_file)
 
                     # Generate metadata
                     metadata = self._generate_metadata(md_file, branch_name)
@@ -1247,8 +1317,8 @@ class GitRepository:
                     # Read markdown content
                     md_content = md_path.read_text(encoding='utf-8')
 
-                    # Convert to HTML
-                    html_content, toc_html = self._markdown_to_html(md_content)
+                    # Convert to HTML with file path for resolving relative URLs
+                    html_content, toc_html = self._markdown_to_html(md_content, md_file)
 
                     # Generate metadata
                     metadata = self._generate_metadata(md_file, branch_name)
