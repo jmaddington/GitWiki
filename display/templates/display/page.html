@@ -289,7 +289,6 @@
             quickUploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
 
             const formData = new FormData();
-            formData.append('user_id', 1); // Default user for now
             formData.append('file', file);
             // Upload to the current directory or parent directory
             formData.append('target_path', '{{ parent_path|default:"" }}');
@@ -341,8 +340,10 @@
             const filePath = this.getAttribute('data-file-path');
             const fileName = this.getAttribute('data-file-name');
 
-            // Confirm deletion
-            if (!confirm(`Are you sure you want to delete "${fileName}"? This will commit the deletion to the repository.`)) {
+            // Confirm deletion - escape filename to prevent XSS
+            // AIDEV-NOTE: xss-prevention; Use escapeHtml() from utils.js for all user input
+            const escapedFileName = escapeHtml(fileName);
+            if (!confirm(`Are you sure you want to delete "${escapedFileName}"? This will commit the deletion to the repository.`)) {
                 return;
             }
 
@@ -359,7 +360,6 @@
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                     },
                     body: JSON.stringify({
-                        user_id: 1,  // Default user
                         file_path: filePath,
                         commit_message: `Delete ${fileName}`
                     })
@@ -395,8 +395,10 @@
             const pathParts = filePath.split('/');
             const fileName = pathParts[pathParts.length - 1].replace('.md', '');
 
-            // Confirm deletion
-            if (!confirm(`Are you sure you want to delete this page "${fileName}"? This will commit the deletion to the repository.`)) {
+            // Confirm deletion - escape filename to prevent XSS
+            // AIDEV-NOTE: xss-prevention; Use escapeHtml() from utils.js for all user input
+            const escapedFileName = escapeHtml(fileName);
+            if (!confirm(`Are you sure you want to delete this page "${escapedFileName}"? This will commit the deletion to the repository.`)) {
                 return;
             }
 
@@ -413,7 +415,6 @@
                         'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
                     },
                     body: JSON.stringify({
-                        user_id: 1,  // Default user
                         file_path: filePath,
                         commit_message: `Delete ${fileName}`
                     })

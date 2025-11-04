@@ -41,12 +41,18 @@ Key AIDEV-NOTEs in codebase:
 Configuration:
 - `security-config` (settings.py:32) - Load SECRET_KEY and config from environment
 - `repo-path-config` (settings.py:24) - Git repository location configuration
+- `static-dirs-config` (settings.py:160) - Custom static files for reusable JS utilities
 - `logs-dir-creation` (settings.py:180) - Create logs directory if it doesn't exist
 - `production-config` (settings_production.py:17) - Production-specific security settings
 - `production-logging` (settings_production.py:62) - Centralized logging for production
 - `api-utils` (config/api_utils.py:6) - Standardized error handling for all API endpoints
 - `health-check` (config/health.py:6) - System health monitoring endpoint for production
 - `health-endpoints` (config/urls.py:34) - Monitoring endpoints for load balancers and orchestration
+
+Security Utilities:
+- `xss-prevention` (static/js/utils.js:5) - Client-side HTML escaping for XSS prevention (see SECURITY.md)
+- `filename-utils` (git_service/filename_utils.py:12) - Centralized filename sanitization and validation
+- `dangerous-extensions` (git_service/filename_utils.py:22) - Blacklist of 30+ executable file types
 
 Git Service:
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
@@ -60,6 +66,8 @@ Git Service:
 - `markdown-cache` (git_operations.py:675) - Caches rendered HTML for 30 minutes using content hash
 - `static-generation` (git_operations.py:709) - Atomic operation using temp directory (full rebuild)
 - `incremental-rebuild` (git_operations.py:1013) - Only regenerates changed files for performance
+- `batch-git-grep` (git_operations.py:1205) - Process all changed images in one grep for performance
+- `perf-cache-branch` (git_operations.py:223, 340) - Cache active branch name to avoid repeated git calls
 - `conflict-detection` (git_operations.py:840) - Caches results for 2min to avoid expensive operations
 - `three-way-diff` (git_operations.py:931) - Extracts base, theirs, ours for Monaco Editor
 - `conflict-resolution` (git_operations.py:1004) - Retries merge after applying resolution
@@ -89,14 +97,13 @@ Editor Service:
 - `binary-detection` (editor/api.py:710) - Text vs binary file detection
 - `rebuild-after-upload` (editor/api.py:867) - Partial rebuild for directory listings (incremental-rebuild)
 - `editor-views` (editor/views.py:4) - UI views for markdown editing
-- `editor-client` (edit.html:225) - Toast UI Editor with auto-save, clipboard paste, and draft discard
-- `draft-discard` (edit.html:79) - Always-available button to discard draft and reload from main
-- `draft-staleness-check` (api.py:146) - Detects when draft differs from main and shows warning
+- `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
 - `editor-tests` (editor/tests.py:4) - Tests for editing workflow, sessions, API endpoints, and conflict resolution
 
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
 - `attachment-page` (display/views.py:821) - Shows file details with preview and management options
+- `security-headers` (display/views.py:981) - Prevent MIME sniffing, XSS, and clickjacking on file serving
 - `metadata-cache` (display/views.py:42) - Caches metadata for 1 hour to reduce disk I/O
 - `directory-cache` (display/views.py:120) - Caches directory listings for 10 minutes
 - `search-cache` (display/views.py:311) - Caches search results for 5 minutes to reduce file I/O
@@ -164,6 +171,7 @@ Git Service:
 
 Editor Service:
 - EDITSESS-INACTIVE01, EDITSESS-MULTI01, EDITSESS-CONSTRAINT-FAIL01
+- EDITOR-AUTH01, EDITOR-AUTH02, EDITOR-AUTH03 (authentication required for edit operations)
 - EDITOR-BRANCH-RECREATE01, EDITOR-BRANCH-RECREATE02, EDITOR-BRANCH-RECREATE03
 - EDITOR-START01, EDITOR-START02, EDITOR-START03, EDITOR-START-VAL01, EDITOR-START-RACE01, EDITOR-START-RACE02, EDITOR-START-STALE01
 - EDITOR-SAVE01, EDITOR-SAVE02, EDITOR-SAVE03, EDITOR-SAVE-VAL01, EDITOR-SAVE-NOTFOUND
@@ -179,7 +187,6 @@ Editor Service:
 - EDITOR-RESOLVE-VAL01
 - EDITOR-DELETE01, EDITOR-DELETE03, EDITOR-DELETE04, EDITOR-DELETE-VAL01, EDITOR-DELETE-NOTFOUND (file deletion)
 - EDITOR-DELETE-REBUILD01, EDITOR-DELETE-REBUILD02, EDITOR-DELETE-REBUILD03, EDITOR-DELETE-REBUILD04, EDITOR-DELETE-REBUILD05 (rebuild after deletion)
-- EDITOR-DISCARD01, EDITOR-DISCARD02, EDITOR-DISCARD03, EDITOR-DISCARD04, EDITOR-DISCARD-VAL01, EDITOR-DISCARD-NOTFOUND (draft session discard)
 - MIGRATION-CLEANUP01, MIGRATION-CLEANUP02, MIGRATION-CLEANUP03, MIGRATION-CLEANUP04, MIGRATION-CLEANUP05
 
 Display Service:
@@ -220,6 +227,8 @@ Security (Phase 7):
 - SECURITY-02: Production mode enabled with DEBUG=False
 - SECURITY-03: Using default SECRET_KEY (must change for production)
 - SECURITY-04: Production settings loaded
+- SECURITY-UTILS01: Empty filename provided, using fallback (filename sanitization)
+- SECURITY-UTILS02: Filename sanitization resulted in empty string (filename sanitization)
 - SECURITY-05: HTTPS redirect enabled
 - SECURITY-06: HSTS enabled
 - SECURITY-07: Using PostgreSQL database

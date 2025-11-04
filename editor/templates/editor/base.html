@@ -175,6 +175,10 @@
     <!-- Axios for API calls -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 
+    <!-- GitWiki Utilities (XSS prevention, CSRF helpers) -->
+    <!-- AIDEV-NOTE: xss-prevention; Load escapeHtml() and other security utilities -->
+    <script src="{% static 'js/utils.js' %}"></script>
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>
