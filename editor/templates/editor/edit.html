@@ -21,6 +21,22 @@
                 </div>
             </div>
 
+            <!-- Stale Draft Warning -->
+            <div id="stale-draft-warning" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Draft may be outdated</strong>
+                        <p class="mb-0">This draft differs from the current version on main. You can continue editing or discard the draft to start fresh.</p>
+                    </div>
+                    <div class="ms-3">
+                        <button type="button" class="btn btn-sm btn-danger" id="btn-discard-draft">
+                            <i class="fas fa-trash"></i> Discard Draft
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Main Editor Area -->
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -60,6 +76,9 @@
                             <a href="/editor/sessions/" class="btn btn-outline-secondary" title="View all sessions">
                                 <i class="fas fa-list"></i> My Drafts
                             </a>
+                            <button type="button" class="btn btn-outline-danger" id="btn-discard-draft-toolbar" title="Discard this draft and reload from main">
+                                <i class="fas fa-trash"></i> Discard Draft
+                            </button>
                             <a href="/" class="btn btn-outline-danger" title="Cancel editing">
                                 <i class="fas fa-times"></i> Cancel
                             </a>
@@ -380,11 +399,18 @@
 
             updateStatus('saved', data.resumed ? 'Session resumed' : 'Ready to edit');
 
+            // Show stale draft warning if needed
+            if (data.is_stale) {
+                document.getElementById('stale-draft-warning').style.display = 'block';
+            }
+
             // Start auto-save
             startAutoSave();
 
-            // Check localStorage for unsaved changes
-            checkLocalStorage();
+            // Check localStorage for unsaved changes (skip if draft is stale to avoid confusion)
+            if (!data.is_stale) {
+                checkLocalStorage();
+            }
 
         } catch (error) {
             console.error('Failed to start edit session:', error);
@@ -496,6 +522,41 @@
         const modal = new bootstrap.Modal(document.getElementById('publishModal'));
         modal.show();
     });
+
+    // Discard draft button handler (warning banner)
+    document.getElementById('btn-discard-draft').addEventListener('click', discardDraft);
+
+    // Discard draft button handler (toolbar)
+    document.getElementById('btn-discard-draft-toolbar').addEventListener('click', discardDraft);
+
+    async function discardDraft() {
+        if (!confirm('Are you sure you want to discard this draft? This will delete the draft session and reload the current version from main.')) {
+            return;
+        }
+
+        updateStatus('loading', 'Discarding draft...');
+
+        try {
+            const response = await axios.post(`${API_BASE}/discard/`, {
+                session_id: editorState.sessionId
+            });
+
+            // Clear localStorage
+            localStorage.removeItem(LOCALSTORAGE_KEY);
+
+            showToast('Draft discarded. Reloading page...', 'success', 1500);
+
+            // Reload the page to start fresh
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+
+        } catch (error) {
+            console.error('Failed to discard draft:', error);
+            updateStatus('error', 'Failed to discard draft');
+            showToast('Error: ' + extractErrorMessage(error, 'Failed to discard draft'), 'error', 5000);
+        }
+    }
 
     document.getElementById('btn-confirm-publish').addEventListener('click', async function() {
         updateStatus('loading', 'Publishing...');

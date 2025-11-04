@@ -29,7 +29,8 @@ from .serializers import (
     UploadImageSerializer,
     UploadFileSerializer,
     QuickUploadFileSerializer,
-    DeleteFileSerializer
+    DeleteFileSerializer,
+    DiscardDraftSerializer
 )
 from git_service.git_operations import get_repository, GitRepositoryError
 from git_service.models import Configuration
@@ -143,6 +144,16 @@ class StartEditAPIView(APIView):
                             # File doesn't exist anywhere, start with empty content
                             content = f"# {Path(file_path).stem.replace('-', ' ').title()}\n\n"
 
+                    # AIDEV-NOTE: draft-staleness-check; Detect if draft differs from main
+                    is_stale = False
+                    main_content = None
+                    try:
+                        main_content = repo.get_file_content(file_path, 'main')
+                        is_stale = (content != main_content)
+                    except GitRepositoryError:
+                        # File doesn't exist in main, so not stale
+                        pass
+
                     return success_response(
                         data={
                             'session_id': existing_session.id,
@@ -151,7 +162,8 @@ class StartEditAPIView(APIView):
                             'content': content,
                             'created_at': existing_session.created_at,
                             'last_modified': existing_session.last_modified,
-                            'resumed': True
+                            'resumed': True,
+                            'is_stale': is_stale
                         },
                         message=f"Resumed edit session for '{file_path}'"
                     )
@@ -1225,6 +1237,77 @@ class DeleteFileAPIView(APIView):
             response, should_rollback = handle_exception(
                 e, "delete file", "EDITOR-DELETE04",
                 "Failed to delete file. Please try again."
+            )
+            if should_rollback:
+                transaction.set_rollback(True)
+            return response
+
+
+class DiscardDraftAPIView(APIView):
+    """
+    API endpoint to discard a draft session.
+
+    POST /api/editor/discard/
+    {
+        "session_id": 123
+    }
+    """
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    @transaction.atomic
+    def post(self, request):
+        """Discard a draft session and delete its branch."""
+        # Validate input
+        serializer = DiscardDraftSerializer(data=request.data)
+        if not serializer.is_valid():
+            return validation_error_response(serializer.errors, "EDITOR-DISCARD-VAL01")
+
+        data = serializer.validated_data
+        session_id = data['session_id']
+
+        try:
+            # Get the edit session
+            session = EditSession.objects.get(id=session_id, is_active=True)
+            file_path = session.file_path
+            branch_name = session.branch_name
+
+            # Mark session as inactive
+            session.mark_inactive()
+            logger.info(f'Discarded draft session {session_id} for {file_path} [EDITOR-DISCARD01]')
+
+            # Try to delete the draft branch
+            try:
+                repo = get_repository()
+                # Switch to main before deleting the branch
+                repo.repo.heads.main.checkout()
+                # Delete the draft branch
+                repo.repo.delete_head(branch_name, force=True)
+                logger.info(f'Deleted draft branch {branch_name} [EDITOR-DISCARD02]')
+            except Exception as e:
+                # Branch deletion is not critical - session is already inactive
+                logger.warning(f'Failed to delete branch {branch_name}: {e} [EDITOR-DISCARD03]')
+
+            return success_response(
+                data={
+                    'session_id': session_id,
+                    'file_path': file_path,
+                    'branch_name': branch_name
+                },
+                message=f"Draft for '{file_path}' discarded successfully"
+            )
+
+        except EditSession.DoesNotExist:
+            logger.error(f'Session not found: {session_id} [EDITOR-DISCARD-NOTFOUND]')
+            return error_response(
+                message=f"Edit session {session_id} not found or already discarded",
+                error_code="EDITOR-DISCARD-NOTFOUND",
+                status_code=status.HTTP_404_NOT_FOUND,
+                details={'session_id': session_id}
+            )
+        except Exception as e:
+            response, should_rollback = handle_exception(
+                e, "discard draft", "EDITOR-DISCARD04",
+                "Failed to discard draft. Please try again."
             )
             if should_rollback:
                 transaction.set_rollback(True)

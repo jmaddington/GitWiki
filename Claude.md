@@ -89,7 +89,9 @@ Editor Service:
 - `binary-detection` (editor/api.py:710) - Text vs binary file detection
 - `rebuild-after-upload` (editor/api.py:867) - Partial rebuild for directory listings (incremental-rebuild)
 - `editor-views` (editor/views.py:4) - UI views for markdown editing
-- `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
+- `editor-client` (edit.html:225) - Toast UI Editor with auto-save, clipboard paste, and draft discard
+- `draft-discard` (edit.html:79) - Always-available button to discard draft and reload from main
+- `draft-staleness-check` (api.py:146) - Detects when draft differs from main and shows warning
 - `editor-tests` (editor/tests.py:4) - Tests for editing workflow, sessions, API endpoints, and conflict resolution
 
 Display Service:
@@ -177,6 +179,7 @@ Editor Service:
 - EDITOR-RESOLVE-VAL01
 - EDITOR-DELETE01, EDITOR-DELETE03, EDITOR-DELETE04, EDITOR-DELETE-VAL01, EDITOR-DELETE-NOTFOUND (file deletion)
 - EDITOR-DELETE-REBUILD01, EDITOR-DELETE-REBUILD02, EDITOR-DELETE-REBUILD03, EDITOR-DELETE-REBUILD04, EDITOR-DELETE-REBUILD05 (rebuild after deletion)
+- EDITOR-DISCARD01, EDITOR-DISCARD02, EDITOR-DISCARD03, EDITOR-DISCARD04, EDITOR-DISCARD-VAL01, EDITOR-DISCARD-NOTFOUND (draft session discard)
 - MIGRATION-CLEANUP01, MIGRATION-CLEANUP02, MIGRATION-CLEANUP03, MIGRATION-CLEANUP04, MIGRATION-CLEANUP05
 
 Display Service:

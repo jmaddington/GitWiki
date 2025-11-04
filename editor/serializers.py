@@ -151,3 +151,8 @@ class DeleteFileSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid file path: no absolute paths or parent directory references allowed")
 
         return value
+
+
+class DiscardDraftSerializer(serializers.Serializer):
+    """Serializer for discarding a draft session."""
+    session_id = serializers.IntegerField(required=True, min_value=1)
