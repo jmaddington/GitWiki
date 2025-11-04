@@ -60,6 +60,8 @@ Git Service:
 - `markdown-cache` (git_operations.py:675) - Caches rendered HTML for 30 minutes using content hash
 - `static-generation` (git_operations.py:709) - Atomic operation using temp directory (full rebuild)
 - `incremental-rebuild` (git_operations.py:1013) - Only regenerates changed files for performance
+- `batch-git-grep` (git_operations.py:1205) - Process all changed images in one grep for performance
+- `perf-cache-branch` (git_operations.py:223, 340) - Cache active branch name to avoid repeated git calls
 - `conflict-detection` (git_operations.py:840) - Caches results for 2min to avoid expensive operations
 - `three-way-diff` (git_operations.py:931) - Extracts base, theirs, ours for Monaco Editor
 - `conflict-resolution` (git_operations.py:1004) - Retries merge after applying resolution
@@ -95,6 +97,7 @@ Editor Service:
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
 - `attachment-page` (display/views.py:821) - Shows file details with preview and management options
+- `security-headers` (display/views.py:981) - Prevent MIME sniffing, XSS, and clickjacking on file serving
 - `metadata-cache` (display/views.py:42) - Caches metadata for 1 hour to reduce disk I/O
 - `directory-cache` (display/views.py:120) - Caches directory listings for 10 minutes
 - `search-cache` (display/views.py:311) - Caches search results for 5 minutes to reduce file I/O

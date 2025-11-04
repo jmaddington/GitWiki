@@ -12,6 +12,7 @@ AIDEV-NOTE: atomic-ops; All operations must be atomic and rollback-safe
 """
 
 import os
+import re
 import shutil
 import uuid
 import json
@@ -218,7 +219,9 @@ class GitRepository:
                 raise GitRepositoryError(f"Branch {branch_name} does not exist")
 
             # Checkout branch if not already on it
-            if self.repo.active_branch.name != branch_name:
+            # AIDEV-NOTE: perf-cache-branch; Cache active branch name to avoid repeated git calls
+            current_branch = self.repo.active_branch.name
+            if current_branch != branch_name:
                 self.repo.heads[branch_name].checkout()
 
             # Write file content (skip if binary file already on disk)
@@ -333,7 +336,9 @@ class GitRepository:
                 raise GitRepositoryError(f"File not found: {file_path}")
 
             # Checkout branch if not already on it
-            if self.repo.active_branch.name != branch_name:
+            # AIDEV-NOTE: perf-cache-branch; Cache active branch name to avoid repeated git calls
+            current_branch = self.repo.active_branch.name
+            if current_branch != branch_name:
                 self.repo.heads[branch_name].checkout()
 
             # Remove file from filesystem
@@ -1186,7 +1191,9 @@ class GitRepository:
             # Step 2: Process changed files
             changed_md_files = set()
             affected_dirs = set()
+            changed_images = []
 
+            # First pass: collect changed markdown files and images
             for changed_file in changed_files:
                 file_path = Path(changed_file)
                 affected_dirs.add(str(file_path.parent))
@@ -1195,24 +1202,33 @@ class GitRepository:
                 if file_path.suffix == '.md':
                     changed_md_files.add(changed_file)
 
-                # Handle image files - find markdown files that reference them
+                # Collect image files for batch processing
                 elif changed_file.startswith('images/'):
-                    try:
-                        logger.info(f'Finding markdown files referencing image {changed_file} [GITOPS-PARTIAL05]')
-                        # Use git grep to find references to this image
-                        image_name = file_path.name
-                        grep_result = self.repo.git.grep('-l', image_name, '--', '*.md')
+                    changed_images.append(file_path.name)
 
-                        if grep_result:
-                            referencing_files = grep_result.strip().split('\n')
-                            for ref_file in referencing_files:
-                                if ref_file.strip():
-                                    changed_md_files.add(ref_file.strip())
-                                    logger.info(f'Image referenced in {ref_file.strip()} [GITOPS-PARTIAL06]')
-                    except git.exc.GitCommandError:
-                        # No references found (grep returns error if no matches)
-                        logger.info(f'No markdown files reference {changed_file} [GITOPS-PARTIAL07]')
+            # AIDEV-NOTE: batch-git-grep; Process all images in one grep for performance
+            # Handle image files - find markdown files that reference them (batched)
+            if changed_images:
+                logger.info(f'Finding markdown files referencing {len(changed_images)} changed images [GITOPS-PARTIAL05]')
+                try:
+                    # Build regex pattern for all images: (image1|image2|image3)
+                    # Escape special regex characters in filenames
+                    escaped_images = [re.escape(img) for img in changed_images]
+                    pattern = '|'.join(escaped_images)
+                    grep_result = self.repo.git.grep('-l', '-E', pattern, '--', '*.md')
 
+                    if grep_result:
+                        referencing_files = grep_result.strip().split('\n')
+                        for ref_file in referencing_files:
+                            if ref_file.strip():
+                                changed_md_files.add(ref_file.strip())
+                        logger.info(f'Found {len(referencing_files)} markdown files referencing changed images [GITOPS-PARTIAL06]')
+                except git.exc.GitCommandError:
+                    # No references found (grep returns error if no matches)
+                    logger.info(f'No markdown files reference changed images [GITOPS-PARTIAL07]')
+
+            # Second pass: copy changed files to temp directory
+            for changed_file in changed_files:
                 # Copy the changed file to temp directory
                 source_path = self.repo_path / changed_file
                 dest_path = temp_dir / changed_file

@@ -50,7 +50,7 @@ if not DEBUG and SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
 elif SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
     logger.warning('Using default SECRET_KEY - MUST change for production [SECURITY-03]')
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,gitwiki.jmatsdev.com', cast=Csv())
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 # CSRF Configuration
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())

@@ -443,7 +443,7 @@ def wiki_page(request, file_path):
         raise
     except Exception as e:
         logger.error(f'Error rendering page {file_path}: {str(e)} [DISPLAY-PAGE04]')
-        raise Http404(f"Error loading page: {str(e)}")
+        raise Http404("Page unavailable")
 
 
 @require_http_methods(["GET"])
@@ -624,7 +624,7 @@ def page_history(request, file_path):
 
     except Exception as e:
         logger.error(f'Error loading history for {file_path}: {str(e)} [DISPLAY-HISTORY02]')
-        raise Http404(f"Error loading history: {str(e)}")
+        raise Http404("Page history unavailable")
 
 
 @require_http_methods(["GET", "POST"])
@@ -684,7 +684,7 @@ def new_page(request):
 
     except Exception as e:
         logger.error(f'Error in new page view: {str(e)} [DISPLAY-NEWPAGE05]')
-        raise Http404(f"Error creating page: {str(e)}")
+        raise Http404("Unable to create new page")
 
 
 @require_http_methods(["GET", "POST"])
@@ -883,7 +883,7 @@ def attachment_page(request, file_path):
             parent_path = ''
 
         # Get file URL for preview
-        file_url = f'/wiki/files/{clean_path}'
+        file_url = f'/wiki/file/{clean_path}'
 
         logger.info(f'Displaying attachment page for {clean_path} [DISPLAY-ATTACH05]')
 
@@ -908,7 +908,7 @@ def attachment_page(request, file_path):
         raise
     except Exception as e:
         logger.error(f'Error displaying attachment page for {file_path}: {str(e)} [DISPLAY-ATTACH06]')
-        raise Http404(f"Error loading attachment: {str(e)}")
+        raise Http404("Attachment unavailable")
 
 
 def serve_file(request, file_path):
@@ -978,18 +978,23 @@ def serve_file(request, file_path):
                 # Inline display for viewable files
                 response['Content-Disposition'] = f'inline; filename="{file_name}"'
 
+            # AIDEV-NOTE: security-headers; Prevent MIME sniffing, XSS, and clickjacking
+            response['X-Content-Type-Options'] = 'nosniff'
+            response['X-Frame-Options'] = 'DENY'
+            response['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline';"
+
             logger.info(f'Serving file: {clean_path} (type: {content_type}, download: {force_download}) [DISPLAY-FILE05]')
             return response
 
         except IOError as e:
             logger.error(f'Error reading file {clean_path}: {str(e)} [DISPLAY-FILE06]')
-            raise Http404(f"Error reading file: {str(e)}")
+            raise Http404("File unavailable")
 
     except Http404:
         raise
     except Exception as e:
         logger.error(f'Error serving file {file_path}: {str(e)} [DISPLAY-FILE07]')
-        raise Http404(f"Error serving file: {str(e)}")
+        raise Http404("File unavailable")
 
 
 # Error Handlers
