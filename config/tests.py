@@ -4,6 +4,10 @@ Tests for permission middleware and authentication.
 AIDEV-NOTE: permission-tests; Comprehensive permission system testing
 """
 
+import os
+import subprocess
+import sys
+
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -301,3 +305,66 @@ class ConfigurationManagementTestCase(TestCase):
         # Should use default or show warning
         max_size = Configuration.get_config('max_image_size_mb')
         self.assertLessEqual(max_size, 100)
+
+
+class SecurityValidationTestCase(TestCase):
+    """Test security validation at startup."""
+
+    def _run_startup_test(self, debug, secret_key, expected_exit_code):
+        """Helper to run startup test in a subprocess with given settings."""
+        # Use static script without interpolation to avoid code injection
+        test_script = '''
+import sys
+import django
+try:
+    django.setup()
+    sys.exit(0)
+except SystemExit as e:
+    sys.exit(e.code)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(2)
+'''
+        # Pass environment variables safely via env parameter
+        test_env = os.environ.copy()
+        test_env.update({
+            'DEBUG': debug,
+            'SECRET_KEY': secret_key,
+            'DJANGO_SETTINGS_MODULE': 'config.settings'
+        })
+
+        # Run the test script with the same Python interpreter as the test runner
+        result = subprocess.run(
+            [sys.executable, '-c', test_script],
+            capture_output=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            env=test_env
+        )
+
+        self.assertEqual(result.returncode, expected_exit_code, result.stderr.decode())
+        return result
+
+    def test_production_blocks_default_secret_key(self):
+        """Test that production mode refuses to start with default SECRET_KEY."""
+        result = self._run_startup_test(
+            debug='False',
+            secret_key='django-insecure-dev-key-CHANGE-IN-PRODUCTION',
+            expected_exit_code=1
+        )
+        self.assertIn(b'SECURITY-FATAL', result.stderr)
+
+    def test_development_allows_default_secret_key(self):
+        """Test that development mode allows default SECRET_KEY."""
+        self._run_startup_test(
+            debug='True',
+            secret_key='django-insecure-dev-key-CHANGE-IN-PRODUCTION',
+            expected_exit_code=0
+        )
+
+    def test_production_allows_custom_secret_key(self):
+        """Test that production mode allows custom SECRET_KEY."""
+        self._run_startup_test(
+            debug='False',
+            secret_key='custom-secure-secret-key-for-production-12345',
+            expected_exit_code=0
+        )

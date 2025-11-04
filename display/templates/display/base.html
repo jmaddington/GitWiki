@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -331,6 +332,13 @@
                                 </a>
                             </li>
                         {% endif %}
+                        {% if user.is_superuser %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="/api/git/sync/">
+                                    <i class="fas fa-sync"></i> Sync
+                                </a>
+                            </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link" href="{% url 'logout' %}">
                                 <i class="fas fa-sign-out-alt"></i> Logout
@@ -373,6 +381,10 @@
     <!-- Prism.js for syntax highlighting -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <!-- GitWiki Utilities (XSS prevention, CSRF helpers) -->
+    <!-- AIDEV-NOTE: xss-prevention; Load escapeHtml() and other security utilities -->
+    <script src="{% static 'js/utils.js' %}"></script>
 
     {% block extra_js %}{% endblock %}
 </body>

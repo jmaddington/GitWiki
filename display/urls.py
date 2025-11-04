@@ -16,11 +16,20 @@ urlpatterns = [
     # New page creation
     path('new/', views.new_page, name='new-page'),
 
+    # New folder creation
+    path('new-folder/', views.new_folder, name='new-folder'),
+
     # Search
     path('search/', views.wiki_search, name='search'),
 
     # Page history
     path('history/<path:file_path>/', views.page_history, name='history'),
+
+    # Attachment page with preview and delete options
+    path('attachment/<path:file_path>/', views.attachment_page, name='attachment-page'),
+
+    # File serving (images, videos, documents)
+    path('file/<path:file_path>', views.serve_file, name='serve-file'),
 
     # Wiki pages (catch-all, must be last)
     path('<path:file_path>/', views.wiki_page, name='page'),

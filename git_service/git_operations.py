@@ -16,6 +16,7 @@ import shutil
 import uuid
 import json
 import time
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -77,7 +78,7 @@ class GitRepository:
                 # Create initial commit
                 readme_path = self.repo_path / "README.md"
                 readme_path.write_text("# GitWiki\n\nWelcome to GitWiki!\n")
-                self.repo.index.add([str(readme_path)])
+                self.repo.index.add(["README.md"])
                 self.repo.index.commit("Initial commit")
                 logger.info('Repository initialized with initial commit [GITREPO-INIT02]')
             else:
@@ -216,8 +217,9 @@ class GitRepository:
             if not self._has_branch(branch_name):
                 raise GitRepositoryError(f"Branch {branch_name} does not exist")
 
-            # Checkout branch
-            self.repo.heads[branch_name].checkout()
+            # Checkout branch if not already on it
+            if self.repo.active_branch.name != branch_name:
+                self.repo.heads[branch_name].checkout()
 
             # Write file content (skip if binary file already on disk)
             full_path = self.repo_path / file_path
@@ -262,7 +264,11 @@ class GitRepository:
 
             # Invalidate caches for this file
             from config.cache_utils import invalidate_file_cache
+            from django.core.cache import cache
             invalidate_file_cache(branch_name, file_path)
+
+            # Invalidate conflicts cache since branch state changed
+            cache.delete('git_conflicts_list')
 
             return {
                 'success': True,
@@ -286,6 +292,117 @@ class GitRepository:
             )
 
             logger.error(f'{error_msg} [GITOPS-COMMIT02]')
+            raise GitRepositoryError(error_msg)
+
+    def delete_file(
+        self,
+        file_path: str,
+        commit_message: str,
+        user_info: Dict[str, str],
+        user: Optional[User] = None,
+        branch_name: str = 'main'
+    ) -> Dict:
+        """
+        Delete a file from the repository.
+
+        Args:
+            file_path: Relative path to file in repository
+            commit_message: Commit message for the deletion
+            user_info: Dict with 'name' and 'email' keys
+            user: Optional User instance for logging
+            branch_name: Branch to delete from (defaults to 'main')
+
+        Returns:
+            Dict with commit_hash and success status
+
+        Raises:
+            GitRepositoryError: If deletion fails
+
+        AIDEV-NOTE: file-deletion; Removes file from repository and commits the deletion
+        """
+        start_time = time.time()
+
+        try:
+            # Validate branch exists
+            if not self._has_branch(branch_name):
+                raise GitRepositoryError(f"Branch {branch_name} does not exist")
+
+            # Check file exists
+            full_path = self.repo_path / file_path
+            if not full_path.exists():
+                raise GitRepositoryError(f"File not found: {file_path}")
+
+            # Checkout branch if not already on it
+            if self.repo.active_branch.name != branch_name:
+                self.repo.heads[branch_name].checkout()
+
+            # Remove file from filesystem
+            full_path.unlink()
+
+            # Stage deletion
+            self.repo.index.remove([file_path])
+
+            # Configure author
+            actor = git.Actor(user_info.get('name', 'Unknown'), user_info.get('email', 'unknown@example.com'))
+
+            # Commit
+            commit = self.repo.index.commit(commit_message, author=actor, committer=actor)
+            commit_hash = commit.hexsha
+
+            execution_time = int((time.time() - start_time) * 1000)
+
+            # Log operation
+            GitOperation.log_operation(
+                operation_type='delete',
+                user=user,
+                branch_name=branch_name,
+                file_path=file_path,
+                request_params={
+                    'commit_message': commit_message,
+                    'user_info': user_info
+                },
+                response_code=200,
+                success=True,
+                git_output=f'Deleted file, committed {commit_hash[:8]}',
+                execution_time_ms=execution_time
+            )
+
+            logger.info(f'Deleted {file_path} from {branch_name}: {commit_hash[:8]} [GITOPS-DELETE01]')
+
+            # Invalidate caches for this file
+            from config.cache_utils import invalidate_file_cache
+            from django.core.cache import cache
+            invalidate_file_cache(branch_name, file_path)
+
+            # Invalidate directory cache for parent directory
+            parent_path = str(Path(file_path).parent)
+            if parent_path == '.':
+                parent_path = ''
+            cache.delete(f'directory_listing_{branch_name}_{parent_path}')
+            cache.delete(f'metadata_{branch_name}_{parent_path}')
+
+            return {
+                'success': True,
+                'commit_hash': commit_hash
+            }
+
+        except Exception as e:
+            execution_time = int((time.time() - start_time) * 1000)
+            error_msg = f'Failed to delete file: {str(e)}'
+
+            GitOperation.log_operation(
+                operation_type='delete',
+                user=user,
+                branch_name=branch_name,
+                file_path=file_path,
+                request_params={'commit_message': commit_message},
+                response_code=500,
+                success=False,
+                error_message=error_msg,
+                execution_time_ms=execution_time
+            )
+
+            logger.error(f'{error_msg} [GITOPS-DELETE02]')
             raise GitRepositoryError(error_msg)
 
     def _check_merge_conflicts(self, branch_name: str) -> Tuple[bool, List[str]]:
@@ -312,8 +429,8 @@ class GitRepository:
                 self.repo.git.merge(branch_name, no_commit=True, no_ff=True)
 
                 # If we get here, no conflicts
-                # Abort the merge to keep repo clean
-                self.repo.git.merge('--abort')
+                # Reset to undo staging changes (--no-commit doesn't create MERGE_HEAD)
+                self.repo.git.reset('--hard', 'HEAD')
 
                 # Return to original branch
                 if current_branch != 'main':
@@ -330,12 +447,18 @@ class GitRepository:
                         # Parse unmerged files
                         unmerged = self.repo.index.unmerged_blobs()
                         conflicts = list(unmerged.keys())
-                    except Exception:
+                    except Exception as ex:
                         # If we can't get specific files, just note there are conflicts
+                        logger.warning(f'Failed to get unmerged blobs: {ex} [GITOPS-CONFLICT15]')
                         conflicts = ['unknown']
 
-                    # Abort the merge
-                    self.repo.git.merge('--abort')
+                    # Abort the merge (safe to use here as CONFLICT creates MERGE_HEAD)
+                    try:
+                        self.repo.git.merge('--abort')
+                    except GitCommandError as abort_error:
+                        # If abort fails, reset as fallback
+                        logger.warning(f'Merge abort failed, using reset instead: {abort_error} [GITOPS-CONFLICT02]')
+                        self.repo.git.reset('--hard', 'HEAD')
 
                     # Return to original branch
                     if current_branch != 'main':
@@ -343,8 +466,12 @@ class GitRepository:
 
                     return True, conflicts
                 else:
-                    # Different error, re-raise
-                    self.repo.git.merge('--abort')
+                    # Different error - try abort first, fallback to reset
+                    try:
+                        self.repo.git.merge('--abort')
+                    except GitCommandError:
+                        self.repo.git.reset('--hard', 'HEAD')
+
                     if current_branch != 'main':
                         self.repo.heads[current_branch].checkout()
                     raise
@@ -413,6 +540,10 @@ class GitRepository:
                 }
 
             # No conflicts - proceed with merge
+            # Detect changed files before merge for incremental rebuild
+            changed_files = self.get_changed_files_in_merge(branch_name, 'main')
+            logger.info(f'Detected {len(changed_files)} changed files before merge [GITOPS-PUBLISH08]')
+
             self.repo.heads.main.checkout()
 
             # Merge branch using git merge command
@@ -439,15 +570,28 @@ class GitRepository:
 
             logger.info(f'Successfully merged {branch_name} to main [GITOPS-PUBLISH02]')
 
-            # Trigger static file generation for main branch
+            # Trigger incremental static file generation for main branch
             try:
-                self.write_branch_to_disk('main', user)
-                logger.info(f'Generated static files after merge [GITOPS-PUBLISH04]')
+                # Use incremental rebuild with detected changes
+                self.write_files_to_disk('main', changed_files, user)
+                logger.info(f'Generated static files after merge (incremental) [GITOPS-PUBLISH04]')
+
+                # Queue async full rebuild as safety net
+                try:
+                    from git_service.tasks import async_full_rebuild_task
+                    async_full_rebuild_task.delay('main')
+                    logger.info('Queued async full rebuild as safety net [GITOPS-PUBLISH06]')
+                except Exception as task_err:
+                    logger.warning(f'Could not queue async rebuild task: {str(task_err)} [GITOPS-PUBLISH07]')
 
                 # Invalidate caches for main branch
                 from config.cache_utils import invalidate_branch_cache, invalidate_search_cache
+                from django.core.cache import cache
                 invalidate_branch_cache('main')
                 invalidate_search_cache('main')
+
+                # Invalidate conflicts cache since main branch changed
+                cache.delete('git_conflicts_list')
 
             except Exception as e:
                 logger.warning(f'Static generation failed after merge: {str(e)} [GITOPS-PUBLISH05]')
@@ -479,6 +623,50 @@ class GitRepository:
             )
 
             logger.error(f'{error_msg} [GITOPS-PUBLISH03]')
+            raise GitRepositoryError(error_msg)
+
+    def get_changed_files_in_merge(self, source_branch: str, target_branch: str) -> List[str]:
+        """
+        Get list of files that differ between two branches.
+        Used to detect which files need incremental rebuild.
+
+        Args:
+            source_branch: The branch being merged from (e.g., draft branch)
+            target_branch: The branch being merged into (e.g., 'main')
+
+        Returns:
+            List of file paths that differ (e.g., ['docs/page.md', 'images/main/pic.png'])
+
+        Raises:
+            GitRepositoryError: If branches don't exist or diff fails
+        """
+        try:
+            logger.info(f'Detecting changed files between {source_branch} and {target_branch} [GITOPS-CHANGED01]')
+
+            # Get diff of file names only between branches
+            # Using three-dot diff to get changes from common ancestor
+            diff_output = self.repo.git.diff(
+                f'{target_branch}...{source_branch}',
+                name_only=True
+            )
+
+            # Parse output into list of paths
+            if not diff_output.strip():
+                logger.info(f'No files changed between branches [GITOPS-CHANGED02]')
+                return []
+
+            changed_files = [
+                line.strip()
+                for line in diff_output.split('\n')
+                if line.strip()
+            ]
+
+            logger.info(f'Found {len(changed_files)} changed files [GITOPS-CHANGED03]')
+            return changed_files
+
+        except Exception as e:
+            error_msg = f'Failed to detect changed files: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-CHANGED04]')
             raise GitRepositoryError(error_msg)
 
     def get_file_content(self, file_path: str, branch: str = 'main') -> str:
@@ -720,7 +908,70 @@ class GitRepository:
                 'history_summary': {'total_commits': 0, 'contributors': [], 'created': None, 'last_modified': None}
             }
 
-    def _markdown_to_html(self, content: str) -> Tuple[str, str]:
+    def _resolve_relative_paths(self, html_content: str, file_path: str) -> str:
+        """
+        Resolve relative image and link paths in HTML to absolute URLs.
+
+        AIDEV-NOTE: path-resolution; Converts relative paths to absolute /wiki/file/ URLs
+
+        Args:
+            html_content: HTML content with potentially relative paths
+            file_path: Path to the markdown file (e.g., 'Windows 10 EOL Upgrades/Windows 10 EOL Upgrades.md')
+
+        Returns:
+            HTML with resolved absolute paths
+        """
+        from pathlib import Path
+        from html.parser import HTMLParser
+        import re
+
+        # Get the directory containing the markdown file
+        file_dir = str(Path(file_path).parent) if file_path else ''
+        if file_dir == '.':
+            file_dir = ''
+
+        def resolve_path(url: str) -> str:
+            """Resolve a single URL path."""
+            # Skip absolute URLs (http://, https://, //, /)
+            if url.startswith(('http://', 'https://', '//', '/')):
+                return url
+
+            # Skip anchors and mailto
+            if url.startswith(('#', 'mailto:')):
+                return url
+
+            # Resolve relative path
+            if file_dir:
+                resolved = f'{file_dir}/{url}'
+            else:
+                resolved = url
+
+            # Normalize path (remove ./ and handle ../)
+            resolved = str(Path(resolved))
+
+            # Convert to absolute wiki URL
+            return f'/wiki/file/{resolved}'
+
+        # Process img src attributes
+        html_content = re.sub(
+            r'<img\s+([^>]*?)src=["\']([^"\']+)["\']([^>]*?)>',
+            lambda m: f'<img {m.group(1)}src="{resolve_path(m.group(2))}"{m.group(3)}>',
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        # Process a href attributes (for links to files, not wiki pages)
+        # Only process links to non-.md files to avoid breaking internal wiki links
+        html_content = re.sub(
+            r'<a\s+([^>]*?)href=["\']([^"\']+\.(?:png|jpg|jpeg|gif|svg|pdf|doc|docx|xls|xlsx|zip|tar|gz))["\']([^>]*?)>',
+            lambda m: f'<a {m.group(1)}href="{resolve_path(m.group(2))}"{m.group(3)}>',
+            html_content,
+            flags=re.IGNORECASE
+        )
+
+        return html_content
+
+    def _markdown_to_html(self, content: str, file_path: str = '') -> Tuple[str, str]:
         """
         Convert markdown to HTML with table of contents, with caching.
 
@@ -729,6 +980,7 @@ class GitRepository:
 
         Args:
             content: Markdown content
+            file_path: Path to markdown file for resolving relative paths (default: '')
 
         Returns:
             Tuple of (html_content, toc_html)
@@ -737,8 +989,10 @@ class GitRepository:
         import hashlib
 
         try:
-            # Create cache key from content hash
-            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+            # Create cache key from content hash and file path
+            # File path is important for cache key because same content in different locations needs different URLs
+            cache_data = f'{content}:{file_path}'
+            content_hash = hashlib.md5(cache_data.encode('utf-8')).hexdigest()
             cache_key = f'markdown:{content_hash}'
 
             # Check cache first
@@ -759,6 +1013,10 @@ class GitRepository:
 
             html_content = md.convert(content)
             toc_html = md.toc if hasattr(md, 'toc') else ''
+
+            # Resolve relative paths to absolute URLs
+            if file_path:
+                html_content = self._resolve_relative_paths(html_content, file_path)
 
             result = (html_content, toc_html)
 
@@ -790,6 +1048,7 @@ class GitRepository:
         """
         start_time = time.time()
         temp_dir = None
+        temp_moved = False
 
         try:
             # Save current branch
@@ -809,20 +1068,28 @@ class GitRepository:
             files_written = 0
             markdown_files = []
 
-            # Copy all files from repository
-            for item in self.repo_path.rglob('*'):
-                if item.is_file() and '.git' not in str(item):
+            # Copy all files from repository (including hidden files like .gitkeep)
+            def copy_tree(src, dst):
+                """Recursively copy directory tree including hidden files."""
+                nonlocal files_written
+                for item in src.iterdir():
+                    if item.name == '.git':
+                        continue
+
                     rel_path = item.relative_to(self.repo_path)
-                    dest_path = temp_dir / rel_path
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    dest_item = dst / item.name
 
-                    # Copy file
-                    shutil.copy2(item, dest_path)
-                    files_written += 1
+                    if item.is_dir():
+                        dest_item.mkdir(exist_ok=True)
+                        copy_tree(item, dest_item)
+                    else:
+                        shutil.copy2(item, dest_item)
+                        files_written += 1
+                        # Track markdown files for HTML generation
+                        if item.suffix == '.md':
+                            markdown_files.append(str(rel_path))
 
-                    # Track markdown files for HTML generation
-                    if item.suffix == '.md':
-                        markdown_files.append(str(rel_path))
+            copy_tree(self.repo_path, temp_dir)
 
             # Generate HTML and metadata for markdown files
             for md_file in markdown_files:
@@ -831,8 +1098,8 @@ class GitRepository:
                     md_path = temp_dir / md_file
                     md_content = md_path.read_text(encoding='utf-8')
 
-                    # Convert to HTML
-                    html_content, toc_html = self._markdown_to_html(md_content)
+                    # Convert to HTML with file path for resolving relative URLs
+                    html_content, toc_html = self._markdown_to_html(md_content, md_file)
 
                     # Generate metadata
                     metadata = self._generate_metadata(md_file, branch_name)
@@ -854,8 +1121,18 @@ class GitRepository:
             # Atomic move to final location
             final_dir = settings.WIKI_STATIC_PATH / branch_name
             if final_dir.exists():
-                shutil.rmtree(final_dir)
-            shutil.move(str(temp_dir), str(final_dir))
+                try:
+                    shutil.rmtree(final_dir)
+                except Exception as e:
+                    logger.error(f'Failed to remove existing directory {final_dir}: {str(e)} [GITOPS-STATIC05]')
+                    raise GitRepositoryError(f'Failed to remove existing directory: {str(e)}')
+
+            try:
+                shutil.move(str(temp_dir), str(final_dir))
+                temp_moved = True
+            except Exception as e:
+                logger.error(f'Failed to move {temp_dir} to {final_dir}: {str(e)} [GITOPS-STATIC06]')
+                raise GitRepositoryError(f'Failed to move temp directory to final location: {str(e)}')
 
             # Return to original branch
             if current_branch != branch_name:
@@ -886,10 +1163,6 @@ class GitRepository:
             }
 
         except Exception as e:
-            # Cleanup temp directory on error
-            if temp_dir and temp_dir.exists():
-                shutil.rmtree(temp_dir)
-
             execution_time = int((time.time() - start_time) * 1000)
             error_msg = f'Failed to generate static files: {str(e)}'
 
@@ -905,6 +1178,312 @@ class GitRepository:
             )
 
             logger.error(f'{error_msg} [GITOPS-STATIC03]')
+            raise GitRepositoryError(error_msg)
+
+        finally:
+            # Guaranteed cleanup of temp directory if it wasn't successfully moved
+            if temp_dir and temp_dir.exists() and not temp_moved:
+                try:
+                    shutil.rmtree(temp_dir)
+                    logger.debug(f'Cleaned up temp directory {temp_dir} [GITOPS-STATIC04]')
+                except Exception as cleanup_err:
+                    logger.error(f'Failed to cleanup temp directory {temp_dir}: {str(cleanup_err)} [GITOPS-STATIC04]')
+
+    def write_files_to_disk(self, branch_name: str, changed_files: List[str], user: Optional[User] = None) -> Dict:
+        """
+        Incrementally regenerate only specified files to static directory.
+        Falls back to full rebuild on any error.
+
+        Args:
+            branch_name: Branch to export (typically 'main')
+            changed_files: List of file paths that changed (from get_changed_files_in_merge)
+            user: Optional User instance for logging
+
+        Returns:
+            Dict with success status, file counts, and whether fallback occurred
+
+        Raises:
+            GitRepositoryError: If static generation fails
+
+        AIDEV-NOTE: incremental-rebuild; Only regenerates changed files for performance
+        """
+        start_time = time.time()
+        temp_dir = None
+        temp_moved = False
+
+        try:
+            logger.info(f'Starting incremental rebuild for {len(changed_files)} changed files [GITOPS-PARTIAL01]')
+
+            # If no files changed, nothing to do
+            if not changed_files:
+                logger.info('No files to rebuild [GITOPS-PARTIAL02]')
+                return {
+                    'success': True,
+                    'branch_name': branch_name,
+                    'files_written': 0,
+                    'markdown_files': 0,
+                    'execution_time_ms': 0,
+                    'incremental': True
+                }
+
+            # Save current branch
+            current_branch = self.repo.active_branch.name
+
+            # Checkout target branch
+            if branch_name in [head.name for head in self.repo.heads]:
+                self.repo.heads[branch_name].checkout()
+            else:
+                raise GitRepositoryError(f"Branch {branch_name} not found")
+
+            # Create temp directory
+            temp_uuid = str(uuid.uuid4())[:8]
+            temp_dir = settings.WIKI_STATIC_PATH / f'.tmp-{temp_uuid}'
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # Get existing static directory
+            final_dir = settings.WIKI_STATIC_PATH / branch_name
+
+            files_written = 0
+            markdown_files_processed = 0
+
+            # Step 1: Copy existing static directory structure if it exists
+            if final_dir.exists():
+                logger.info(f'Copying existing static files from {branch_name} [GITOPS-PARTIAL03]')
+                shutil.copytree(final_dir, temp_dir, dirs_exist_ok=True)
+            else:
+                logger.info(f'No existing static directory for {branch_name}, starting fresh [GITOPS-PARTIAL04]')
+
+            # Step 2: Process changed files
+            changed_md_files = set()
+            affected_dirs = set()
+
+            for changed_file in changed_files:
+                file_path = Path(changed_file)
+                affected_dirs.add(str(file_path.parent))
+
+                # Handle markdown files
+                if file_path.suffix == '.md':
+                    changed_md_files.add(changed_file)
+
+                # Handle image files - find markdown files that reference them
+                elif changed_file.startswith('images/'):
+                    try:
+                        logger.info(f'Finding markdown files referencing image {changed_file} [GITOPS-PARTIAL05]')
+                        # Use git grep to find references to this image
+                        image_name = file_path.name
+                        grep_result = self.repo.git.grep('-l', image_name, '--', '*.md')
+
+                        if grep_result:
+                            referencing_files = grep_result.strip().split('\n')
+                            for ref_file in referencing_files:
+                                if ref_file.strip():
+                                    changed_md_files.add(ref_file.strip())
+                                    logger.info(f'Image referenced in {ref_file.strip()} [GITOPS-PARTIAL06]')
+                    except git.exc.GitCommandError:
+                        # No references found (grep returns error if no matches)
+                        logger.info(f'No markdown files reference {changed_file} [GITOPS-PARTIAL07]')
+
+                # Copy the changed file to temp directory
+                source_path = self.repo_path / changed_file
+                dest_path = temp_dir / changed_file
+
+                if source_path.exists():
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_path, dest_path)
+                    files_written += 1
+                    logger.debug(f'Copied changed file {changed_file} [GITOPS-PARTIAL08]')
+                elif dest_path.exists():
+                    # File was deleted in the change
+                    dest_path.unlink()
+                    logger.info(f'Removed deleted file {changed_file} [GITOPS-PARTIAL09]')
+
+            # Step 3: Regenerate HTML and metadata for affected markdown files
+            logger.info(f'Regenerating {len(changed_md_files)} markdown files [GITOPS-PARTIAL10]')
+
+            for md_file in changed_md_files:
+                try:
+                    md_path = self.repo_path / md_file
+                    if not md_path.exists():
+                        # File was deleted, remove associated HTML and metadata
+                        html_file = temp_dir / Path(md_file).with_suffix('.html')
+                        meta_file = temp_dir / Path(md_file).with_suffix('.md.metadata')
+                        if html_file.exists():
+                            html_file.unlink()
+                        if meta_file.exists():
+                            meta_file.unlink()
+                        logger.info(f'Removed HTML/metadata for deleted file {md_file} [GITOPS-PARTIAL11]')
+                        continue
+
+                    # Read markdown content
+                    md_content = md_path.read_text(encoding='utf-8')
+
+                    # Convert to HTML with file path for resolving relative URLs
+                    html_content, toc_html = self._markdown_to_html(md_content, md_file)
+
+                    # Generate metadata
+                    metadata = self._generate_metadata(md_file, branch_name)
+
+                    # Write HTML file
+                    html_file = (temp_dir / md_file).with_suffix('.html')
+                    html_file.parent.mkdir(parents=True, exist_ok=True)
+                    html_file.write_text(html_content, encoding='utf-8')
+                    files_written += 1
+
+                    # Write metadata file
+                    meta_file = (temp_dir / md_file).with_suffix('.md.metadata')
+                    metadata['toc'] = toc_html
+                    meta_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+                    files_written += 1
+
+                    markdown_files_processed += 1
+                    logger.debug(f'Regenerated HTML/metadata for {md_file} [GITOPS-PARTIAL12]')
+
+                except Exception as e:
+                    logger.warning(f'Failed to process {md_file}: {str(e)} [GITOPS-PARTIAL13]')
+
+            # Step 4: Update directory listings for affected directories
+            # (This could be enhanced in the future to regenerate directory index pages)
+            logger.info(f'Affected directories: {len(affected_dirs)} [GITOPS-PARTIAL14]')
+
+            # Step 5: Atomic move to final location
+            if final_dir.exists():
+                try:
+                    shutil.rmtree(final_dir)
+                except Exception as e:
+                    logger.error(f'Failed to remove existing directory {final_dir}: {str(e)} [GITOPS-PARTIAL15]')
+                    raise GitRepositoryError(f'Failed to remove existing directory: {str(e)}')
+
+            try:
+                shutil.move(str(temp_dir), str(final_dir))
+                temp_moved = True
+            except Exception as e:
+                logger.error(f'Failed to move {temp_dir} to {final_dir}: {str(e)} [GITOPS-PARTIAL16]')
+                raise GitRepositoryError(f'Failed to move temp directory to final location: {str(e)}')
+
+            # Return to original branch
+            if current_branch != branch_name:
+                self.repo.heads[current_branch].checkout()
+
+            execution_time = int((time.time() - start_time) * 1000)
+
+            # Log operation
+            GitOperation.log_operation(
+                operation_type='incremental_static_generation',
+                user=user,
+                branch_name=branch_name,
+                request_params={
+                    'branch': branch_name,
+                    'changed_files_count': len(changed_files),
+                    'markdown_files_processed': markdown_files_processed
+                },
+                response_code=200,
+                success=True,
+                git_output=f'Regenerated {files_written} files ({markdown_files_processed} markdown)',
+                execution_time_ms=execution_time
+            )
+
+            logger.info(f'Incremental rebuild complete: {files_written} files, {markdown_files_processed} markdown in {execution_time}ms [GITOPS-PARTIAL17]')
+
+            return {
+                'success': True,
+                'branch_name': branch_name,
+                'files_written': files_written,
+                'markdown_files': markdown_files_processed,
+                'execution_time_ms': execution_time,
+                'incremental': True
+            }
+
+        except Exception as e:
+            execution_time = int((time.time() - start_time) * 1000)
+            error_msg = f'Incremental rebuild failed, falling back to full rebuild: {str(e)}'
+
+            logger.warning(f'{error_msg} [GITOPS-PARTIAL18]')
+
+            # Cleanup temp directory before fallback
+            if temp_dir and temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as cleanup_err:
+                    logger.error(f'Failed to cleanup temp directory: {str(cleanup_err)} [GITOPS-PARTIAL19]')
+
+            # Fallback to full rebuild
+            try:
+                logger.info(f'Attempting full rebuild fallback [GITOPS-PARTIAL20]')
+                result = self.write_branch_to_disk(branch_name, user)
+                result['incremental'] = False
+                result['fallback'] = True
+                return result
+            except Exception as fallback_error:
+                final_error = f'Both incremental and full rebuild failed: {str(fallback_error)}'
+                logger.error(f'{final_error} [GITOPS-PARTIAL21]')
+                raise GitRepositoryError(final_error)
+
+        finally:
+            # Guaranteed cleanup of temp directory if it wasn't successfully moved
+            if temp_dir and temp_dir.exists() and not temp_moved:
+                try:
+                    shutil.rmtree(temp_dir)
+                    logger.debug(f'Cleaned up temp directory {temp_dir} [GITOPS-PARTIAL22]')
+                except Exception as cleanup_err:
+                    logger.error(f'Failed to cleanup temp directory {temp_dir}: {str(cleanup_err)} [GITOPS-PARTIAL23]')
+
+    def copy_folder_to_static(self, folder_path: str, branch_name: str = 'main') -> Dict:
+        """
+        Lightweight copy of folder with .gitkeep to static directory.
+        Used for folder creation to avoid full rebuild overhead.
+
+        Args:
+            folder_path: Path to folder (e.g., 'docs/guides')
+            branch_name: Branch to copy from (default: 'main')
+
+        Returns:
+            Dict with success status
+
+        Raises:
+            GitRepositoryError: If copy fails
+        """
+        try:
+            logger.info(f'Copying folder {folder_path} to static directory [GITOPS-FOLDER01]')
+
+            # Source and destination paths
+            source_folder = self.repo_path / folder_path
+            static_folder = settings.WIKI_STATIC_PATH / branch_name / folder_path
+
+            if not source_folder.exists():
+                raise GitRepositoryError(f"Folder {folder_path} does not exist in repository")
+
+            # Create static folder
+            static_folder.mkdir(parents=True, exist_ok=True)
+
+            # Copy .gitkeep file
+            gitkeep_source = source_folder / '.gitkeep'
+            if gitkeep_source.exists():
+                gitkeep_dest = static_folder / '.gitkeep'
+                shutil.copy2(gitkeep_source, gitkeep_dest)
+                logger.info(f'Copied .gitkeep to {static_folder} [GITOPS-FOLDER02]')
+
+            # Invalidate parent directory cache
+            from config.cache_utils import invalidate_file_cache
+            from django.core.cache import cache
+
+            parent_path = str(Path(folder_path).parent)
+            if parent_path == '.':
+                parent_path = ''
+
+            # Invalidate parent directory listing
+            cache_key = f'directory:{branch_name}:{parent_path}'
+            cache.delete(cache_key)
+            logger.info(f'Invalidated cache for parent directory {parent_path} [GITOPS-FOLDER03]')
+
+            return {
+                'success': True,
+                'folder_path': folder_path,
+                'branch_name': branch_name
+            }
+
+        except Exception as e:
+            error_msg = f'Failed to copy folder to static: {str(e)}'
+            logger.error(f'{error_msg} [GITOPS-FOLDER04]')
             raise GitRepositoryError(error_msg)
 
     def get_conflicts(self, cache_timeout: int = 120) -> Dict:
@@ -1824,17 +2403,31 @@ class GitRepository:
 
 
 # Global repository instance
+# AIDEV-NOTE: thread-safe-singleton; Lock protects initialization from race conditions
 _repo_instance = None
+_repo_lock = threading.Lock()
 
 
 def get_repository() -> GitRepository:
     """
     Get global GitRepository instance (singleton pattern).
 
+    Thread-safe implementation using double-checked locking pattern.
+    This prevents race conditions when multiple threads try to initialize
+    the repository simultaneously in multi-threaded environments like
+    Gunicorn with threading workers.
+
     Returns:
         GitRepository instance
     """
     global _repo_instance
+
+    # First check (without lock) for performance
     if _repo_instance is None:
-        _repo_instance = GitRepository()
+        # Acquire lock for initialization
+        with _repo_lock:
+            # Second check (with lock) to prevent race condition
+            if _repo_instance is None:
+                _repo_instance = GitRepository()
+
     return _repo_instance

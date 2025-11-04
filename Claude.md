@@ -41,11 +41,18 @@ Key AIDEV-NOTEs in codebase:
 Configuration:
 - `security-config` (settings.py:32) - Load SECRET_KEY and config from environment
 - `repo-path-config` (settings.py:24) - Git repository location configuration
+- `static-dirs-config` (settings.py:160) - Custom static files for reusable JS utilities
+- `logs-dir-creation` (settings.py:180) - Create logs directory if it doesn't exist
 - `production-config` (settings_production.py:17) - Production-specific security settings
 - `production-logging` (settings_production.py:62) - Centralized logging for production
 - `api-utils` (config/api_utils.py:6) - Standardized error handling for all API endpoints
 - `health-check` (config/health.py:6) - System health monitoring endpoint for production
 - `health-endpoints` (config/urls.py:34) - Monitoring endpoints for load balancers and orchestration
+
+Security Utilities:
+- `xss-prevention` (static/js/utils.js:5) - Client-side HTML escaping for XSS prevention (see SECURITY.md)
+- `filename-utils` (git_service/filename_utils.py:12) - Centralized filename sanitization and validation
+- `dangerous-extensions` (git_service/filename_utils.py:22) - Blacklist of 30+ executable file types
 
 Git Service:
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
@@ -53,10 +60,14 @@ Git Service:
 - `dry-run-merge` (git_operations.py:271) - Uses --no-commit to test merge without modifying repo
 - `binary-files` (git_operations.py:205) - is_binary flag for images/binary files already on disk
 - `binary-files-read` (git_operations.py:528) - Read binary files (images, PDFs) without text encoding
+- `file-deletion` (git_operations.py:320) - Removes file from repository and commits the deletion
 - `file-history` (git_operations.py:543) - Used for page history display
 - `markdown-conversion` (git_operations.py:674) - Uses markdown library with extensions for tables, code, TOC
 - `markdown-cache` (git_operations.py:675) - Caches rendered HTML for 30 minutes using content hash
-- `static-generation` (git_operations.py:709) - Atomic operation using temp directory
+- `static-generation` (git_operations.py:709) - Atomic operation using temp directory (full rebuild)
+- `incremental-rebuild` (git_operations.py:1013) - Only regenerates changed files for performance
+- `batch-git-grep` (git_operations.py:1205) - Process all changed images in one grep for performance
+- `perf-cache-branch` (git_operations.py:223, 340) - Cache active branch name to avoid repeated git calls
 - `conflict-detection` (git_operations.py:840) - Caches results for 2min to avoid expensive operations
 - `three-way-diff` (git_operations.py:931) - Extracts base, theirs, ours for Monaco Editor
 - `conflict-resolution` (git_operations.py:1004) - Retries merge after applying resolution
@@ -73,16 +84,26 @@ Git Service:
 
 Editor Service:
 - `session-tracking` (editor/models.py:13) - Maps users to their draft branches
+- `branch-recreation` (editor/api.py:43) - Automatically recreates missing draft branches to preserve user work
 - `editor-serializers` (editor/serializers.py:5) - Validation for all editor API endpoints
+- `file-delete-api` (editor/api.py:1129) - Deletes files from main branch and triggers static rebuild
 - `path-validation` (editor/serializers.py:16) - Prevent directory traversal attacks
 - `editor-api` (editor/api.py:10) - REST API for markdown editing workflow
 - `image-path-structure` (editor/api.py:539) - Images stored in images/{branch_name}/
+- `file-path-structure` (editor/api.py:705) - Arbitrary files stored in files/{branch_name}/
+- `arbitrary-file-upload` (editor/serializers.py:99) - Allow any file type up to 100MB
+- `quick-file-upload` (editor/serializers.py:121) - Quick upload without session to main branch
+- `quick-upload-path` (editor/api.py:822) - Files uploaded to target_path (current directory)
+- `binary-detection` (editor/api.py:710) - Text vs binary file detection
+- `rebuild-after-upload` (editor/api.py:867) - Partial rebuild for directory listings (incremental-rebuild)
 - `editor-views` (editor/views.py:4) - UI views for markdown editing
 - `editor-client` (edit.html:225) - SimpleMDE editor with auto-save and clipboard paste
 - `editor-tests` (editor/tests.py:4) - Tests for editing workflow, sessions, API endpoints, and conflict resolution
 
 Display Service:
 - `display-views` (display/views.py:6) - Wiki page rendering and search functionality
+- `attachment-page` (display/views.py:821) - Shows file details with preview and management options
+- `security-headers` (display/views.py:981) - Prevent MIME sniffing, XSS, and clickjacking on file serving
 - `metadata-cache` (display/views.py:42) - Caches metadata for 1 hour to reduce disk I/O
 - `directory-cache` (display/views.py:120) - Caches directory listings for 10 minutes
 - `search-cache` (display/views.py:311) - Caches search results for 5 minutes to reduce file I/O
@@ -123,11 +144,16 @@ Git Service:
 - GITOPS-HISTORY01, GITOPS-HISTORY02
 - GITOPS-META01
 - GITOPS-MARKDOWN01
-- GITOPS-STATIC01, GITOPS-STATIC02, GITOPS-STATIC03
+- GITOPS-STATIC01, GITOPS-STATIC02, GITOPS-STATIC03, GITOPS-STATIC04, GITOPS-STATIC05, GITOPS-STATIC06
 - GITOPS-PULL01, GITOPS-PULL02, GITOPS-PULL03, GITOPS-PULL04, GITOPS-PULL05, GITOPS-PULL06, GITOPS-PULL07, GITOPS-PULL08, GITOPS-PULL09, GITOPS-PULL10
 - GITOPS-PUSH01, GITOPS-PUSH02, GITOPS-PUSH03, GITOPS-PUSH04, GITOPS-PUSH05, GITOPS-PUSH06, GITOPS-PUSH07, GITOPS-PUSH08, GITOPS-PUSH09, GITOPS-PUSH10, GITOPS-PUSH11
 - GITOPS-CLEANUP01, GITOPS-CLEANUP02, GITOPS-CLEANUP03, GITOPS-CLEANUP04, GITOPS-CLEANUP05, GITOPS-CLEANUP06, GITOPS-CLEANUP07, GITOPS-CLEANUP08
 - GITOPS-REBUILD01, GITOPS-REBUILD02, GITOPS-REBUILD03, GITOPS-REBUILD04, GITOPS-REBUILD05, GITOPS-REBUILD06, GITOPS-REBUILD07, GITOPS-REBUILD08, GITOPS-REBUILD09, GITOPS-REBUILD10, GITOPS-REBUILD11
+- GITOPS-CHANGED01, GITOPS-CHANGED02, GITOPS-CHANGED03, GITOPS-CHANGED04 (change detection for incremental rebuild)
+- GITOPS-PARTIAL01 through GITOPS-PARTIAL23 (incremental static file regeneration)
+- GITOPS-FOLDER01, GITOPS-FOLDER02, GITOPS-FOLDER03, GITOPS-FOLDER04 (folder creation optimization)
+- GITOPS-PUBLISH06, GITOPS-PUBLISH07, GITOPS-PUBLISH08 (async rebuild queuing in publish)
+- GITOPS-DELETE01, GITOPS-DELETE02 (file deletion)
 - API-BRANCH01, API-BRANCH02, API-BRANCH-VAL01
 - API-COMMIT01, API-COMMIT02, API-COMMIT-VAL01
 - API-PUBLISH01, API-PUBLISH02, API-PUBLISH03, API-PUBLISH-VAL01, API-PUBLISH-CONFLICT
@@ -140,32 +166,44 @@ Git Service:
 - TASK-PULL01, TASK-PULL02, TASK-PULL03, TASK-PULL04, TASK-PULL05
 - TASK-CLEANUP01, TASK-CLEANUP02, TASK-CLEANUP03, TASK-CLEANUP04
 - TASK-REBUILD01, TASK-REBUILD02, TASK-REBUILD03, TASK-REBUILD04
+- TASK-ASYNC-REBUILD01, TASK-ASYNC-REBUILD02, TASK-ASYNC-REBUILD03, TASK-ASYNC-REBUILD04 (async full rebuild safety net)
 - TASK-TEST01
 
 Editor Service:
-- EDITSESS-INACTIVE01, EDITSESS-MULTI01
-- EDITOR-START01, EDITOR-START02, EDITOR-START03, EDITOR-START-VAL01
+- EDITSESS-INACTIVE01, EDITSESS-MULTI01, EDITSESS-CONSTRAINT-FAIL01
+- EDITOR-AUTH01, EDITOR-AUTH02, EDITOR-AUTH03 (authentication required for edit operations)
+- EDITOR-BRANCH-RECREATE01, EDITOR-BRANCH-RECREATE02, EDITOR-BRANCH-RECREATE03
+- EDITOR-START01, EDITOR-START02, EDITOR-START03, EDITOR-START-VAL01, EDITOR-START-RACE01, EDITOR-START-RACE02, EDITOR-START-STALE01
 - EDITOR-SAVE01, EDITOR-SAVE02, EDITOR-SAVE03, EDITOR-SAVE-VAL01, EDITOR-SAVE-NOTFOUND
-- EDITOR-COMMIT01, EDITOR-COMMIT02, EDITOR-COMMIT03, EDITOR-COMMIT-VAL01, EDITOR-COMMIT-NOTFOUND, EDITOR-COMMIT-INVALID
-- EDITOR-PUBLISH01, EDITOR-PUBLISH02, EDITOR-PUBLISH03, EDITOR-PUBLISH04, EDITOR-PUBLISH-VAL01, EDITOR-PUBLISH-NOTFOUND, EDITOR-PUBLISH-CONFLICT
+- EDITOR-COMMIT01, EDITOR-COMMIT02, EDITOR-COMMIT03, EDITOR-COMMIT-VAL01, EDITOR-COMMIT-NOTFOUND, EDITOR-COMMIT-INVALID, EDITOR-COMMIT-BRANCH-MISSING
+- EDITOR-PUBLISH01, EDITOR-PUBLISH02, EDITOR-PUBLISH03, EDITOR-PUBLISH04, EDITOR-PUBLISH-VAL01, EDITOR-PUBLISH-NOTFOUND, EDITOR-PUBLISH-CONFLICT, EDITOR-PUBLISH-COMMIT01, EDITOR-PUBLISH-COMMIT02, EDITOR-PUBLISH-COMMIT03, EDITOR-PUBLISH-BRANCH-MISSING
 - EDITOR-UPLOAD01, EDITOR-UPLOAD02, EDITOR-UPLOAD03, EDITOR-UPLOAD-VAL01, EDITOR-UPLOAD-NOTFOUND
+- EDITOR-UPLOAD-FILE01, EDITOR-UPLOAD-FILE02, EDITOR-UPLOAD-FILE03, EDITOR-UPLOAD-FILE-VAL01, EDITOR-UPLOAD-FILE-NOTFOUND (arbitrary file upload with session)
+- EDITOR-QUICK-UPLOAD01, EDITOR-QUICK-UPLOAD02, EDITOR-QUICK-UPLOAD-VAL01 (quick file upload without session, commits to main)
+- EDITOR-QUICK-UPLOAD-REBUILD01, EDITOR-QUICK-UPLOAD-REBUILD02, EDITOR-QUICK-UPLOAD-REBUILD03 (static rebuild after quick upload)
 - EDITOR-VALIDATE-VAL01
 - EDITOR-VIEW01, EDITOR-VIEW02, EDITOR-VIEW03, EDITOR-VIEW04, EDITOR-VIEW05, EDITOR-VIEW06, EDITOR-VIEW07, EDITOR-VIEW08, EDITOR-VIEW09
 - EDITOR-CONFLICT01, EDITOR-CONFLICT02, EDITOR-CONFLICT03, EDITOR-CONFLICT04, EDITOR-CONFLICT05, EDITOR-CONFLICT06, EDITOR-CONFLICT07, EDITOR-CONFLICT08, EDITOR-CONFLICT09, EDITOR-CONFLICT-NOTFOUND, EDITOR-CONFLICT-PARTIAL, EDITOR-CONFLICT-BIN01
 - EDITOR-RESOLVE-VAL01
+- EDITOR-DELETE01, EDITOR-DELETE03, EDITOR-DELETE04, EDITOR-DELETE-VAL01, EDITOR-DELETE-NOTFOUND (file deletion)
+- EDITOR-DELETE-REBUILD01, EDITOR-DELETE-REBUILD02, EDITOR-DELETE-REBUILD03, EDITOR-DELETE-REBUILD04, EDITOR-DELETE-REBUILD05 (rebuild after deletion)
+- MIGRATION-CLEANUP01, MIGRATION-CLEANUP02, MIGRATION-CLEANUP03, MIGRATION-CLEANUP04, MIGRATION-CLEANUP05
 
 Display Service:
 - DISPLAY-META01
 - DISPLAY-DIR01
-- DISPLAY-HOME01, DISPLAY-HOME02, DISPLAY-HOME03
+- DISPLAY-HOME01, DISPLAY-HOME02, DISPLAY-HOME03, DISPLAY-HOME04
 - DISPLAY-PAGE01, DISPLAY-PAGE02, DISPLAY-PAGE03, DISPLAY-PAGE04
 - DISPLAY-SEARCH01, DISPLAY-SEARCH02, DISPLAY-SEARCH03
 - DISPLAY-HISTORY01, DISPLAY-HISTORY02
 - DISPLAY-NEWPAGE01, DISPLAY-NEWPAGE02, DISPLAY-NEWPAGE03, DISPLAY-NEWPAGE04, DISPLAY-NEWPAGE05
+- DISPLAY-NEWFOLDER01, DISPLAY-NEWFOLDER02, DISPLAY-NEWFOLDER03, DISPLAY-NEWFOLDER04, DISPLAY-NEWFOLDER05, DISPLAY-NEWFOLDER06, DISPLAY-NEWFOLDER07, DISPLAY-NEWFOLDER08 (optimized folder creation)
+- DISPLAY-ATTACH01, DISPLAY-ATTACH02, DISPLAY-ATTACH03, DISPLAY-ATTACH04, DISPLAY-ATTACH05, DISPLAY-ATTACH06 (attachment page for file preview and management)
 - DISPLAY-CACHE01, DISPLAY-CACHE02, DISPLAY-CACHE03, DISPLAY-CACHE04, DISPLAY-CACHE05, DISPLAY-CACHE06, DISPLAY-CACHE07, DISPLAY-CACHE08
 
 Cache Utilities (Phase 7):
 - CACHE-INVALIDATE01, CACHE-INVALIDATE02, CACHE-INVALIDATE03, CACHE-INVALIDATE04, CACHE-INVALIDATE05, CACHE-INVALIDATE06
+- CACHE-PATTERN01, CACHE-PATTERN02, CACHE-PATTERN03, CACHE-PATTERN04
 - CACHE-CLEAR01, CACHE-CLEAR02
 - CACHE-STATS01, CACHE-STATS02
 
@@ -189,6 +227,8 @@ Security (Phase 7):
 - SECURITY-02: Production mode enabled with DEBUG=False
 - SECURITY-03: Using default SECRET_KEY (must change for production)
 - SECURITY-04: Production settings loaded
+- SECURITY-UTILS01: Empty filename provided, using fallback (filename sanitization)
+- SECURITY-UTILS02: Filename sanitization resulted in empty string (filename sanitization)
 - SECURITY-05: HTTPS redirect enabled
 - SECURITY-06: HSTS enabled
 - SECURITY-07: Using PostgreSQL database
@@ -208,4 +248,4 @@ Error Handlers (Phase 7):
 - ERROR-403: Permission denied (403 error)
 
 Settings:
-- SETTINGS-LOG01
+- SETTINGS-LOG01, SETTINGS-LOGS01
