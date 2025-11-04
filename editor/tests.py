@@ -15,6 +15,8 @@ import git
 
 from .models import EditSession
 from git_service.git_operations import GitRepository
+from git_service import git_operations
+from config.api_utils import get_user_info_for_commit
 
 
 class EditSessionModelTest(TestCase):
@@ -317,6 +319,9 @@ class EditorAPITest(TestCase):
             shutil.rmtree(self.temp_repo_dir)
 
         settings.WIKI_REPO_PATH = self.old_repo_path
+
+        # Clear repository singleton to prevent state pollution between tests
+        git_operations._repo_instance = None
 
     def test_start_edit_new_session(self):
         """Test starting a new edit session."""
@@ -1048,7 +1053,7 @@ class EditorAuthenticationTest(TestCase):
             file_path='test.md',
             content='# Test Page\nContent',
             commit_message='Initial commit',
-            user_info={'name': 'Admin', 'email': 'admin@example.com'},
+            user_info=get_user_info_for_commit(self.user),
             user=self.user
         )
 
@@ -1058,6 +1063,9 @@ class EditorAuthenticationTest(TestCase):
             shutil.rmtree(self.temp_repo_dir)
 
         settings.WIKI_REPO_PATH = self.old_repo_path
+
+        # Clear repository singleton to prevent state pollution between tests
+        git_operations._repo_instance = None
 
     def test_unauthenticated_start_edit(self):
         """Test that unauthenticated users cannot start edit sessions."""
@@ -1416,6 +1424,44 @@ class EditorAuthenticationTest(TestCase):
         # Discard draft
         response = self.client.post('/editor/api/discard/', {
             'session_id': session_id
+        }, content_type='application/json')
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 403])
+
+    def test_unauthenticated_save_draft(self):
+        """Test that unauthenticated users cannot save drafts."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to save draft without authentication
+        response = self.client.post('/editor/api/save/', {
+            'session_id': session_id,
+            'content': '# Test Content'
+        }, content_type='application/json')
+
+        # API returns 403 or redirects to login (302)
+        self.assertIn(response.status_code, [302, 403])
+
+    def test_authenticated_save_draft(self):
+        """Test that authenticated users can save drafts."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Save draft
+        response = self.client.post('/editor/api/save/', {
+            'session_id': session_id,
+            'content': '# Test Content'
         }, content_type='application/json')
 
         # Should not be blocked by authentication

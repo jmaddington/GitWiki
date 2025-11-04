@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 class CreateBranchSerializer(serializers.Serializer):
     """Serializer for create branch request."""
-    user_id = serializers.IntegerField(min_value=1)
+    # No fields needed - uses authenticated user from request
 
 
 class CommitChangesSerializer(serializers.Serializer):
@@ -16,13 +16,7 @@ class CommitChangesSerializer(serializers.Serializer):
     file_path = serializers.CharField(max_length=1024)
     content = serializers.CharField()
     commit_message = serializers.CharField(max_length=500)
-    user_info = serializers.DictField(child=serializers.CharField())
-
-    def validate_user_info(self, value):
-        """Validate user_info has required fields."""
-        if 'name' not in value or 'email' not in value:
-            raise serializers.ValidationError("user_info must contain 'name' and 'email'")
-        return value
+    # user_info removed - uses authenticated user from request via get_user_info_for_commit()
 
 
 class PublishDraftSerializer(serializers.Serializer):

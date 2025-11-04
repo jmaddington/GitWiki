@@ -275,3 +275,14 @@ CACHES = {
         "TIMEOUT": 300,  # Default timeout: 5 minutes
     }
 }
+
+# Override cache for tests - use in-memory cache to avoid Redis dependency
+# AIDEV-NOTE: test-cache; Use LocMemCache for tests to avoid Redis requirement
+import sys
+if 'test' in sys.argv:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "test-cache",
+        }
+    }

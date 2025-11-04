@@ -271,10 +271,13 @@ The following REST API endpoints are currently available:
 
 ### Git Service API (`/api/git/`)
 
+**Note**: All POST endpoints require authentication. User attribution is handled automatically from the authenticated user.
+
 - **POST** `/api/git/branch/create/` - Create a new draft branch
   ```json
-  {"user_id": 123}
+  {}
   ```
+  Creates a draft branch for the authenticated user. No parameters required.
 
 - **POST** `/api/git/commit/` - Commit changes to a draft branch
   ```json
@@ -282,13 +285,10 @@ The following REST API endpoints are currently available:
     "branch_name": "draft-123-abc456",
     "file_path": "docs/page.md",
     "content": "# Page Title\nContent...",
-    "commit_message": "Update page",
-    "user_info": {
-      "name": "John Doe",
-      "email": "john@example.com"
-    }
+    "commit_message": "Update page"
   }
   ```
+  User attribution is automatically added from the authenticated user.
 
 - **POST** `/api/git/publish/` - Publish draft to main (with conflict detection)
   ```json

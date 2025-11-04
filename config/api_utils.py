@@ -209,3 +209,30 @@ def require_fields(data, required_fields):
     """
     missing = [field for field in required_fields if field not in data or data[field] is None]
     return len(missing) == 0, missing
+
+
+# AIDEV-NOTE: user-attribution; Standardized user info for git commits across all API endpoints
+def get_user_info_for_commit(user):
+    """
+    Get standardized user info for git commits.
+
+    This is the SINGLE source of truth for user attribution in git commits.
+    All git operations should use this function to ensure consistent authorship.
+
+    Args:
+        user: Django User instance
+
+    Returns:
+        dict: User info with 'name' and 'email' keys
+
+    Example:
+        # Direct from request
+        user_info = get_user_info_for_commit(request.user)
+
+        # From session
+        user_info = get_user_info_for_commit(session.user)
+    """
+    return {
+        'name': user.get_full_name() or user.username,
+        'email': user.email or f'{user.username}@gitwiki.local'
+    }

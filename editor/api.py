@@ -39,37 +39,11 @@ from config.api_utils import (
     error_response,
     success_response,
     validation_error_response,
-    handle_exception
+    handle_exception,
+    get_user_info_for_commit
 )
 
 logger = logging.getLogger(__name__)
-
-
-# AIDEV-NOTE: user-info-helpers; Standardized user attribution for git commits
-def get_user_info_for_commit(user):
-    """
-    Get standardized user info for git commits.
-
-    This is the SINGLE source of truth for user attribution in git commits.
-    All git operations should use this function to ensure consistent authorship.
-
-    Args:
-        user: Django User instance
-
-    Returns:
-        dict: User info with 'name' and 'email' keys
-
-    Example:
-        # Direct from request
-        user_info = get_user_info_for_commit(request.user)
-
-        # From session
-        user_info = get_user_info_for_commit(session.user)
-    """
-    return {
-        'name': user.get_full_name() or user.username,
-        'email': user.email or f'{user.username}@gitwiki.local'
-    }
 
 
 def _ensure_branch_exists(session: 'EditSession', repo) -> bool:
@@ -280,7 +254,7 @@ class SaveDraftAPIView(APIView):
         "content": "# Page Title\nContent..."
     }
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     @transaction.atomic
     def post(self, request):

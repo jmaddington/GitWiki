@@ -304,7 +304,10 @@ class DeleteFileAPIView(APIView):
 - `IsAuthenticatedOrReadOnly`: ONLY for read-only endpoints (GET, HEAD, OPTIONS)
 
 **Fixed endpoints** (Issue #60):
+
+Editor API (`editor/api.py`):
 - `StartEditAPIView` - Start edit sessions
+- `SaveDraftAPIView` - Save draft and update timestamp
 - `CommitDraftAPIView` - Commit to draft branches
 - `PublishEditAPIView` - Publish to main branch (CRITICAL)
 - `UploadImageAPIView` - Upload images
@@ -313,6 +316,11 @@ class DeleteFileAPIView(APIView):
 - `DeleteFileAPIView` - Delete files
 - `ResolveConflictAPIView` - Resolve merge conflicts
 - `DiscardDraftAPIView` - Discard draft sessions
+
+Git Service API (`git_service/api.py`):
+- `CreateBranchAPIView` - Create draft branches
+- `CommitChangesAPIView` - Commit changes to branches (CRITICAL)
+- `PublishDraftAPIView` - Publish draft to main (CRITICAL)
 
 ### Never Trust User-Provided User IDs
 
@@ -333,7 +341,7 @@ user = request.user
 
 **Rule**: Use the standardized `get_user_info_for_commit()` function for ALL git operations to ensure consistent user attribution.
 
-**Helper Function** (`editor/api.py`):
+**Helper Function** (`config/api_utils.py`):
 ```python
 def get_user_info_for_commit(user):
     """
