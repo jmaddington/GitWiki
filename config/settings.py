@@ -52,6 +52,8 @@ elif SECRET_KEY == 'django-insecure-dev-key-CHANGE-IN-PRODUCTION':
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,gitwiki.jmatsdev.com', cast=Csv())
 
+# CSRF Configuration
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 
 # Application definition
 
