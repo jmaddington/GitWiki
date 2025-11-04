@@ -10,6 +10,14 @@ import tempfile
 
 from .models import Configuration, GitOperation
 from .git_operations import GitRepository, GitRepositoryError
+from .filename_utils import (
+    sanitize_filename,
+    get_safe_extension,
+    is_safe_extension,
+    validate_filename,
+    generate_safe_filename,
+    DANGEROUS_EXTENSIONS
+)
 
 
 class ConfigurationModelTest(TestCase):
@@ -921,3 +929,211 @@ class IncrementalRebuildTest(TestCase):
 
         self.assertTrue(result['success'])
         self.assertTrue(result.get('incremental', False))
+
+
+class FilenameSanitizationTest(TestCase):
+    """Tests for filename sanitization and validation utilities."""
+
+    def test_sanitize_filename_basic(self):
+        """Test basic filename sanitization."""
+        # Normal filename
+        result = sanitize_filename('my_file.pdf')
+        self.assertEqual(result, 'my_file')
+
+        # Filename with spaces
+        result = sanitize_filename('my document.txt')
+        self.assertEqual(result, 'my_document')
+
+        # Filename with special characters
+        result = sanitize_filename('file@#$%.doc')
+        self.assertEqual(result, 'file____')
+
+    def test_sanitize_filename_removes_dots(self):
+        """Test that dots are removed from base name to prevent double-extension attacks."""
+        # Double extension attack - Path.stem returns 'malware.exe' (without final .txt)
+        result = sanitize_filename('malware.exe.txt')
+        self.assertEqual(result, 'malware_exe')
+
+        # Multiple dots - Path.stem returns 'my.file.name' (without final .pdf)
+        result = sanitize_filename('my.file.name.pdf')
+        self.assertEqual(result, 'my_file_name')
+
+    def test_sanitize_filename_path_traversal(self):
+        """Test that path traversal patterns are sanitized."""
+        # Unix path traversal - Path.stem returns just 'passwd'
+        result = sanitize_filename('../../etc/passwd')
+        self.assertEqual(result, 'passwd')
+
+        # Windows path traversal on Unix - Path.stem returns '..\\.', sanitized to '____'
+        # Since result has no alphanumeric chars, fallback is used
+        # (backslashes are literal characters on Unix, not path separators)
+        result = sanitize_filename('..\\..\\Windows\\System32\\config', fallback='file')
+        self.assertEqual(result, 'file')
+
+    def test_sanitize_filename_xss_patterns(self):
+        """Test that XSS patterns are sanitized."""
+        # Script tags - Path.stem returns 'script>' (< and > treated as special), sanitized to 'script_'
+        result = sanitize_filename('<script>alert("xss")</script>.jpg')
+        self.assertEqual(result, 'script_')
+
+        # Event handlers - Path interprets these characters specially
+        result = sanitize_filename('"><img src=x onerror=alert(1)>')
+        self.assertEqual(result, '___img_src_x_onerror_alert_1__')
+
+    def test_sanitize_filename_empty_input(self):
+        """Test sanitization with empty or invalid input."""
+        # Empty string
+        result = sanitize_filename('', fallback='default')
+        self.assertEqual(result, 'default')
+
+        # None
+        result = sanitize_filename(None, fallback='default')
+        self.assertEqual(result, 'default')
+
+        # Only special characters - Path.stem returns '@#$%^&*()' then sanitization converts to underscores
+        # Since result has no alphanumeric chars, fallback is used
+        result = sanitize_filename('@#$%^&*()', fallback='file')
+        self.assertEqual(result, 'file')
+
+    def test_get_safe_extension(self):
+        """Test safe extension extraction."""
+        # Normal extension
+        self.assertEqual(get_safe_extension('file.pdf'), 'pdf')
+
+        # Multiple dots
+        self.assertEqual(get_safe_extension('archive.tar.gz'), 'gz')
+
+        # No extension
+        self.assertIsNone(get_safe_extension('noextension'))
+
+        # Uppercase extension
+        self.assertEqual(get_safe_extension('FILE.PDF'), 'pdf')
+
+        # Empty filename
+        self.assertIsNone(get_safe_extension(''))
+
+    def test_is_safe_extension(self):
+        """Test extension safety checking."""
+        # Safe extensions
+        self.assertTrue(is_safe_extension('pdf'))
+        self.assertTrue(is_safe_extension('jpg'))
+        self.assertTrue(is_safe_extension('txt'))
+        self.assertTrue(is_safe_extension(None))  # No extension is safe
+
+        # Dangerous extensions
+        self.assertFalse(is_safe_extension('exe'))
+        self.assertFalse(is_safe_extension('sh'))
+        self.assertFalse(is_safe_extension('bat'))
+        self.assertFalse(is_safe_extension('jar'))
+
+        # With leading dot
+        self.assertFalse(is_safe_extension('.exe'))
+
+    def test_dangerous_extensions_completeness(self):
+        """Test that DANGEROUS_EXTENSIONS includes critical file types."""
+        # Windows executables
+        self.assertIn('exe', DANGEROUS_EXTENSIONS)
+        self.assertIn('bat', DANGEROUS_EXTENSIONS)
+        self.assertIn('msi', DANGEROUS_EXTENSIONS)
+
+        # Unix/Linux executables
+        self.assertIn('sh', DANGEROUS_EXTENSIONS)
+        self.assertIn('bash', DANGEROUS_EXTENSIONS)
+        self.assertIn('bin', DANGEROUS_EXTENSIONS)
+
+        # macOS executables
+        self.assertIn('app', DANGEROUS_EXTENSIONS)
+        self.assertIn('dmg', DANGEROUS_EXTENSIONS)
+
+        # Cross-platform
+        self.assertIn('jar', DANGEROUS_EXTENSIONS)
+
+        # Verify count (should be 30+)
+        self.assertGreaterEqual(len(DANGEROUS_EXTENSIONS), 30)
+
+    def test_validate_filename_valid(self):
+        """Test filename validation with valid inputs."""
+        # Valid filename
+        valid, error = validate_filename('document.pdf')
+        self.assertTrue(valid)
+        self.assertIsNone(error)
+
+        # Valid filename without extension
+        valid, error = validate_filename('myfile')
+        self.assertTrue(valid)
+        self.assertIsNone(error)
+
+    def test_validate_filename_dangerous_extension(self):
+        """Test filename validation rejects dangerous extensions."""
+        # Executable
+        valid, error = validate_filename('malware.exe')
+        self.assertFalse(valid)
+        self.assertIn('Dangerous file type', error)
+
+        # Shell script
+        valid, error = validate_filename('script.sh')
+        self.assertFalse(valid)
+        self.assertIn('Dangerous file type', error)
+
+    def test_validate_filename_path_traversal(self):
+        """Test filename validation rejects path traversal."""
+        # Double dots
+        valid, error = validate_filename('../etc/passwd')
+        self.assertFalse(valid)
+        self.assertIn('Path traversal', error)
+
+        # Absolute path
+        valid, error = validate_filename('/etc/passwd')
+        self.assertFalse(valid)
+        self.assertIn('Path traversal', error)
+
+        # Windows path
+        valid, error = validate_filename('..\\Windows\\System32')
+        self.assertFalse(valid)
+        self.assertIn('Path traversal', error)
+
+    def test_validate_filename_too_long(self):
+        """Test filename validation rejects overly long filenames."""
+        long_filename = 'a' * 300
+        valid, error = validate_filename(long_filename, max_length=255)
+        self.assertFalse(valid)
+        self.assertIn('too long', error)
+
+    def test_generate_safe_filename(self):
+        """Test complete safe filename generation."""
+        # Normal filename
+        filename, ext = generate_safe_filename(
+            'my document.pdf',
+            '20250104-143000',
+            'abc123'
+        )
+        self.assertEqual(filename, 'my_document-20250104-143000-abc123')
+        self.assertEqual(ext, 'pdf')
+
+        # Double-extension attack - Path.stem returns 'malware.exe'
+        filename, ext = generate_safe_filename(
+            'malware.exe.txt',
+            '20250104-143000',
+            'xyz789'
+        )
+        self.assertEqual(filename, 'malware_exe-20250104-143000-xyz789')
+        self.assertEqual(ext, 'txt')
+
+        # XSS pattern - Path.stem returns 'script>', sanitized to 'script_'
+        filename, ext = generate_safe_filename(
+            '<script>alert("xss")</script>.jpg',
+            '20250104-143000',
+            'def456'
+        )
+        self.assertEqual(filename, 'script_-20250104-143000-def456')
+        self.assertEqual(ext, 'jpg')
+
+        # Empty result uses fallback
+        filename, ext = generate_safe_filename(
+            '@#$%^&*().',
+            '20250104-143000',
+            'ghi789',
+            fallback='uploaded'
+        )
+        self.assertEqual(filename, 'uploaded-20250104-143000-ghi789')
+        self.assertIsNone(ext)

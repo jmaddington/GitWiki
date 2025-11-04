@@ -41,12 +41,18 @@ Key AIDEV-NOTEs in codebase:
 Configuration:
 - `security-config` (settings.py:32) - Load SECRET_KEY and config from environment
 - `repo-path-config` (settings.py:24) - Git repository location configuration
+- `static-dirs-config` (settings.py:160) - Custom static files for reusable JS utilities
 - `logs-dir-creation` (settings.py:180) - Create logs directory if it doesn't exist
 - `production-config` (settings_production.py:17) - Production-specific security settings
 - `production-logging` (settings_production.py:62) - Centralized logging for production
 - `api-utils` (config/api_utils.py:6) - Standardized error handling for all API endpoints
 - `health-check` (config/health.py:6) - System health monitoring endpoint for production
 - `health-endpoints` (config/urls.py:34) - Monitoring endpoints for load balancers and orchestration
+
+Security Utilities:
+- `xss-prevention` (static/js/utils.js:5) - Client-side HTML escaping for XSS prevention (see SECURITY.md)
+- `filename-utils` (git_service/filename_utils.py:12) - Centralized filename sanitization and validation
+- `dangerous-extensions` (git_service/filename_utils.py:22) - Blacklist of 30+ executable file types
 
 Git Service:
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe
@@ -221,6 +227,8 @@ Security (Phase 7):
 - SECURITY-02: Production mode enabled with DEBUG=False
 - SECURITY-03: Using default SECRET_KEY (must change for production)
 - SECURITY-04: Production settings loaded
+- SECURITY-UTILS01: Empty filename provided, using fallback (filename sanitization)
+- SECURITY-UTILS02: Filename sanitization resulted in empty string (filename sanitization)
 - SECURITY-05: HTTPS redirect enabled
 - SECURITY-06: HSTS enabled
 - SECURITY-07: Using PostgreSQL database

@@ -6,6 +6,7 @@ AIDEV-NOTE: editor-serializers; Validation for all editor API endpoints
 
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from git_service.filename_utils import DANGEROUS_EXTENSIONS, get_safe_extension
 
 
 class StartEditSerializer(serializers.Serializer):
@@ -105,24 +106,14 @@ class UploadFileSerializer(serializers.Serializer):
                 f"File too large. Maximum size: {max_size_mb}MB"
             )
 
-        # AIDEV-NOTE: file-type-validation; Block dangerous executable file types
-        # Blacklist of potentially dangerous file extensions
-        dangerous_extensions = {
-            'exe', 'bat', 'cmd', 'com', 'pif', 'scr', 'vbs', 'js', 'jar',
-            'app', 'deb', 'rpm', 'dmg', 'pkg', 'run', 'sh', 'bash', 'csh',
-            'ksh', 'zsh', 'out', 'elf', 'bin', 'gadget', 'msi', 'msp',
-            'scf', 'lnk', 'inf', 'reg'
-        }
-
-        # Get file extension
-        filename = value.name.lower() if value.name else ''
-        if '.' in filename:
-            ext = filename.rsplit('.', 1)[-1]
-            if ext in dangerous_extensions:
-                raise serializers.ValidationError(
-                    f"File type '.{ext}' is not allowed for security reasons. "
-                    f"Executable and script files are blocked."
-                )
+        # AIDEV-NOTE: file-type-validation; Use centralized dangerous extensions from filename_utils
+        # Get file extension using centralized utility
+        ext = get_safe_extension(value.name)
+        if ext and ext in DANGEROUS_EXTENSIONS:
+            raise serializers.ValidationError(
+                f"File type '.{ext}' is not allowed for security reasons. "
+                f"Executable and script files are blocked."
+            )
 
         return value
 
@@ -144,24 +135,14 @@ class QuickUploadFileSerializer(serializers.Serializer):
                 f"File too large. Maximum size: {max_size_mb}MB"
             )
 
-        # AIDEV-NOTE: file-type-validation; Block dangerous executable file types
-        # Blacklist of potentially dangerous file extensions
-        dangerous_extensions = {
-            'exe', 'bat', 'cmd', 'com', 'pif', 'scr', 'vbs', 'js', 'jar',
-            'app', 'deb', 'rpm', 'dmg', 'pkg', 'run', 'sh', 'bash', 'csh',
-            'ksh', 'zsh', 'out', 'elf', 'bin', 'gadget', 'msi', 'msp',
-            'scf', 'lnk', 'inf', 'reg'
-        }
-
-        # Get file extension
-        filename = value.name.lower() if value.name else ''
-        if '.' in filename:
-            ext = filename.rsplit('.', 1)[-1]
-            if ext in dangerous_extensions:
-                raise serializers.ValidationError(
-                    f"File type '.{ext}' is not allowed for security reasons. "
-                    f"Executable and script files are blocked."
-                )
+        # AIDEV-NOTE: file-type-validation; Use centralized dangerous extensions from filename_utils
+        # Get file extension using centralized utility
+        ext = get_safe_extension(value.name)
+        if ext and ext in DANGEROUS_EXTENSIONS:
+            raise serializers.ValidationError(
+                f"File type '.{ext}' is not allowed for security reasons. "
+                f"Executable and script files are blocked."
+            )
 
         return value
 

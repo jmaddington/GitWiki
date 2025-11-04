@@ -156,6 +156,12 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# Additional directories for static files (custom JS/CSS utilities)
+# AIDEV-NOTE: static-dirs-config; Custom static files for reusable JS utilities
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
 # Media files (user uploads, images)
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"

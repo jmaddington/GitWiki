@@ -341,7 +341,8 @@
             const fileName = this.getAttribute('data-file-name');
 
             // Confirm deletion - escape filename to prevent XSS
-            const escapedFileName = fileName.replace(/"/g, '\\"').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // AIDEV-NOTE: xss-prevention; Use escapeHtml() from utils.js for all user input
+            const escapedFileName = escapeHtml(fileName);
             if (!confirm(`Are you sure you want to delete "${escapedFileName}"? This will commit the deletion to the repository.`)) {
                 return;
             }
@@ -395,7 +396,8 @@
             const fileName = pathParts[pathParts.length - 1].replace('.md', '');
 
             // Confirm deletion - escape filename to prevent XSS
-            const escapedFileName = fileName.replace(/"/g, '\\"').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // AIDEV-NOTE: xss-prevention; Use escapeHtml() from utils.js for all user input
+            const escapedFileName = escapeHtml(fileName);
             if (!confirm(`Are you sure you want to delete this page "${escapedFileName}"? This will commit the deletion to the repository.`)) {
                 return;
             }

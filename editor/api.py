@@ -21,6 +21,7 @@ from datetime import datetime
 
 from .models import EditSession
 from config.rate_limit import rate_limit
+from git_service.filename_utils import sanitize_filename, get_safe_extension
 from .serializers import (
     StartEditSerializer,
     SaveDraftSerializer,
@@ -703,15 +704,15 @@ class UploadFileAPIView(APIView):
             session = EditSession.objects.get(id=session_id, is_active=True)
 
             # Generate unique filename with timestamp
-            # AIDEV-NOTE: filename-sanitization; Remove dangerous characters from user input
-            import re
+            # AIDEV-NOTE: filename-sanitization; Use centralized sanitization from filename_utils
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-            file_ext = uploaded_file.name.split('.')[-1].lower() if '.' in uploaded_file.name else ''
             unique_id = str(uuid.uuid4())[:8]
-            raw_base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
-            # Sanitize filename: only allow alphanumeric, hyphens, underscores, and dots
-            safe_base_name = re.sub(r'[^\w\-\.]', '_', raw_base_name)
-            base_name = safe_base_name if safe_base_name else 'file'
+
+            # Use centralized filename sanitization (prevents double-extension attacks)
+            base_name = sanitize_filename(uploaded_file.name, fallback='file')
+            file_ext = get_safe_extension(uploaded_file.name)
+
+            # Construct filename with unique identifiers
             filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
 
             # AIDEV-NOTE: file-path-structure; Arbitrary files stored in files/{branch_name}/
@@ -828,15 +829,15 @@ class QuickUploadFileAPIView(APIView):
         try:
 
             # Generate unique filename with timestamp
-            # AIDEV-NOTE: filename-sanitization; Remove dangerous characters from user input
-            import re
+            # AIDEV-NOTE: filename-sanitization; Use centralized sanitization from filename_utils
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-            file_ext = uploaded_file.name.split('.')[-1].lower() if '.' in uploaded_file.name else ''
             unique_id = str(uuid.uuid4())[:8]
-            raw_base_name = Path(uploaded_file.name).stem if uploaded_file.name else 'file'
-            # Sanitize filename: only allow alphanumeric, hyphens, underscores, and dots
-            safe_base_name = re.sub(r'[^\w\-\.]', '_', raw_base_name)
-            base_name = safe_base_name if safe_base_name else 'file'
+
+            # Use centralized filename sanitization (prevents double-extension attacks)
+            base_name = sanitize_filename(uploaded_file.name, fallback='file')
+            file_ext = get_safe_extension(uploaded_file.name)
+
+            # Construct filename with unique identifiers
             filename = f"{base_name}-{timestamp}-{unique_id}.{file_ext}" if file_ext else f"{base_name}-{timestamp}-{unique_id}"
 
             # AIDEV-NOTE: quick-upload-path; Files stored in target_path (default: files/)
