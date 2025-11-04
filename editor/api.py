@@ -82,7 +82,7 @@ def _ensure_branch_exists(session: 'EditSession', repo) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f'Failed to recreate branch {session.branch_name}: {e} [EDITOR-BRANCH-RECREATE03]')
+        logger.error(f'Failed to recreate branch {session.branch_name}: {e} [EDITOR-BRANCH-RECREATE03]', exc_info=True)
         return False
 
 
@@ -208,7 +208,7 @@ class StartEditAPIView(APIView):
                         message=f"Resumed existing session created by concurrent request for '{file_path}'"
                     )
                 # If still no session found, re-raise the error
-                logger.error(f'Failed to find session after IntegrityError [EDITOR-START-RACE02]')
+                logger.error(f'Failed to find session after IntegrityError [EDITOR-START-RACE02]', exc_info=True)
                 raise
 
             # Get file content from main branch, or create new
@@ -269,8 +269,8 @@ class SaveDraftAPIView(APIView):
         content = data['content']
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Validate markdown
             validation = self._validate_markdown(content)
@@ -291,7 +291,7 @@ class SaveDraftAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-SAVE02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-SAVE02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-SAVE-NOTFOUND",
@@ -358,8 +358,8 @@ class CommitDraftAPIView(APIView):
         commit_message = data['commit_message']
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Validate markdown (hard error on invalid)
             save_view = SaveDraftAPIView()
@@ -407,7 +407,7 @@ class CommitDraftAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-COMMIT02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-COMMIT02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-COMMIT-NOTFOUND",
@@ -451,8 +451,8 @@ class PublishEditAPIView(APIView):
         auto_push = data['auto_push']
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             repo = get_repository()
 
@@ -481,7 +481,7 @@ class PublishEditAPIView(APIView):
                     )
                     logger.info(f'Content committed successfully before publish [EDITOR-PUBLISH-COMMIT02]')
                 except Exception as commit_error:
-                    logger.error(f'Failed to commit content before publish: {commit_error} [EDITOR-PUBLISH-COMMIT03]')
+                    logger.error(f'Failed to commit content before publish: {commit_error} [EDITOR-PUBLISH-COMMIT03]', exc_info=True)
                     raise
 
             # Publish to main via Git Service
@@ -521,7 +521,7 @@ class PublishEditAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-PUBLISH03]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-PUBLISH03]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-PUBLISH-NOTFOUND",
@@ -594,8 +594,8 @@ class UploadImageAPIView(APIView):
         alt_text = data.get('alt_text', '')
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -651,7 +651,7 @@ class UploadImageAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-UPLOAD-NOTFOUND",
@@ -694,8 +694,8 @@ class UploadFileAPIView(APIView):
         description = data.get('description', '')
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -758,7 +758,7 @@ class UploadFileAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD-FILE02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD-FILE02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-UPLOAD-FILE-NOTFOUND",
@@ -860,7 +860,7 @@ class QuickUploadFileAPIView(APIView):
                 repo.write_files_to_disk('main', [file_path], user)
                 logger.info(f'Partial rebuild completed after file upload [EDITOR-QUICK-UPLOAD-REBUILD02]')
             except Exception as rebuild_error:
-                logger.error(f'Partial rebuild failed after file upload: {rebuild_error} [EDITOR-QUICK-UPLOAD-REBUILD03]')
+                logger.error(f'Partial rebuild failed after file upload: {rebuild_error} [EDITOR-QUICK-UPLOAD-REBUILD03]', exc_info=True)
                 # Don't fail the upload if rebuild fails
 
             # Generate markdown link syntax for the file
@@ -955,8 +955,8 @@ class ConflictVersionsAPIView(APIView):
     def get(self, request, session_id, file_path):
         """Get conflict versions for resolution."""
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             repo = get_repository()
             versions = repo.get_conflict_versions(session.branch_name, file_path)
@@ -969,7 +969,7 @@ class ConflictVersionsAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT04]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT04]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-CONFLICT-NOTFOUND",
@@ -1013,8 +1013,8 @@ class ResolveConflictAPIView(APIView):
         conflict_type = data.get('conflict_type', 'text')
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Determine if binary
             is_binary = conflict_type in ['image_mine', 'image_theirs', 'binary_mine', 'binary_theirs']
@@ -1074,7 +1074,7 @@ class ResolveConflictAPIView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT08]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT08]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-CONFLICT-NOTFOUND",
@@ -1162,7 +1162,7 @@ class DeleteFileAPIView(APIView):
                 else:
                     logger.warning(f'Parent directory not found for rebuild: {parent_path} [EDITOR-DELETE-REBUILD04]')
             except Exception as rebuild_error:
-                logger.error(f'Partial rebuild failed after file deletion: {rebuild_error} [EDITOR-DELETE-REBUILD05]')
+                logger.error(f'Partial rebuild failed after file deletion: {rebuild_error} [EDITOR-DELETE-REBUILD05]', exc_info=True)
                 # Don't fail the delete if rebuild fails
 
             return success_response(
@@ -1174,7 +1174,7 @@ class DeleteFileAPIView(APIView):
             )
 
         except GitRepositoryError as e:
-            logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
+            logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]', exc_info=True)
             return error_response(
                 message="Failed to delete file. Please try again.",
                 error_code="EDITOR-DELETE03",
@@ -1214,8 +1214,8 @@ class DiscardDraftAPIView(APIView):
         session_id = data['session_id']
 
         try:
-            # Get the edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get the edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
             file_path = session.file_path
             branch_name = session.branch_name
 
@@ -1245,7 +1245,7 @@ class DiscardDraftAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Session not found: {session_id} [EDITOR-DISCARD-NOTFOUND]')
+            logger.error(f'Session not found: {session_id} [EDITOR-DISCARD-NOTFOUND]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or already discarded",
                 error_code="EDITOR-DISCARD-NOTFOUND",

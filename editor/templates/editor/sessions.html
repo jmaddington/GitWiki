@@ -99,10 +99,11 @@
 
 {% block extra_js %}
 <script>
-    // AIDEV-NOTE: xss-prevention; Use escapeHtml() for user input in confirm dialogs
+    // AIDEV-NOTE: xss-prevention; filePath already escaped by Django's |escapejs filter
     function discardSession(sessionId, filePath) {
-        const escapedFilePath = escapeHtml(filePath);
-        if (!confirm(`Are you sure you want to discard the draft for "${escapedFilePath}"?\n\nThis cannot be undone.`)) {
+        // filePath is already escaped by Django template's |escapejs filter (line 65)
+        // No additional escaping needed for confirm() dialog
+        if (!confirm(`Are you sure you want to discard the draft for "${filePath}"?\n\nThis cannot be undone.`)) {
             return;
         }
 

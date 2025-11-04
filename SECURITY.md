@@ -392,18 +392,18 @@ user_info = {
 }
 ```
 
-### Session-Based Operations Security
+### Session-Based Operations Security (IDOR Prevention)
 
-**Defense-in-Depth**: Session-based operations use TWO layers of security:
+**CRITICAL**: Session-based operations use TWO layers of security to prevent Insecure Direct Object Reference (IDOR) attacks:
 1. **Authentication requirement**: `IsAuthenticated` permission class
-2. **Session ownership**: Session tied to authenticated user via `EditSession.user`
+2. **Session ownership verification**: MUST filter by `user=request.user` in ALL session queries
 
-**Why both layers are needed**:
+**Why both layers are required**:
 - Authentication prevents unauthenticated access
-- Session ownership prevents authenticated users from accessing others' sessions
-- Even if session_id is leaked/guessed, attacker must be authenticated AND own the session
+- User ownership filtering prevents authenticated users from accessing others' sessions (IDOR prevention)
+- Even if session_id is leaked/guessed, attacker cannot access the session without being the owner
 
-**Example - Correct**:
+**Example - Correct** (IDOR-Safe):
 ```python
 class CommitDraftAPIView(APIView):
     permission_classes = [IsAuthenticated]  # Layer 1: Require authentication
@@ -411,24 +411,49 @@ class CommitDraftAPIView(APIView):
     def post(self, request):
         session_id = request.data.get('session_id')
 
-        # Layer 2: Session is tied to a specific user
-        session = EditSession.objects.get(id=session_id, is_active=True)
-        # session.user is set during StartEditAPIView
-        # No additional ownership check needed - session belongs to specific user
+        # Layer 2: MUST filter by user to prevent IDOR attacks
+        session = EditSession.objects.get(
+            id=session_id,
+            is_active=True,
+            user=request.user  # ← CRITICAL: Prevents cross-user session access
+        )
+        # If session belongs to different user, raises DoesNotExist (return 404)
+```
+
+**Example - Incorrect** (VULNERABLE TO IDOR):
+```python
+# DANGEROUS: Missing user ownership check
+session = EditSession.objects.get(id=session_id, is_active=True)
+# Attacker can access ANY session by guessing/leaking session_id
 ```
 
 **Attack Scenarios Prevented**:
-1. **Session ID Leakage**: Even if session_id is leaked, attacker must be authenticated
-2. **CSRF Attacks**: Combined with CSRF tokens, provides robust protection
-3. **Privilege Escalation**: Can't impersonate users via user_id parameter (removed)
-4. **Unauthorized Publishing**: Can't merge malicious content without authentication
-5. **Resource Exhaustion**: Can't upload large files without authentication
+1. **IDOR Attacks**: User B cannot access/modify User A's session even with valid session_id
+2. **Session ID Leakage**: Leaked session_id cannot be exploited by other authenticated users
+3. **CSRF Attacks**: Combined with CSRF tokens and ownership checks
+4. **Privilege Escalation**: Cannot impersonate users via session hijacking
+
+**All Session-Based Endpoints MUST Include User Filter**:
+- `SaveDraftAPIView` - Save draft content
+- `CommitDraftAPIView` - Commit to branch
+- `PublishEditAPIView` - Publish to main
+- `UploadImageAPIView` - Upload images to session
+- `UploadFileAPIView` - Upload files to session
+- `ResolveConflictAPIView` - Resolve merge conflicts
+- `DiscardDraftAPIView` - Discard draft session
+- `ConflictVersionsAPIView` - Get conflict versions
+
+**Testing IDOR Prevention**:
+See `editor/tests.py::SessionOwnershipSecurityTest` for comprehensive IDOR attack simulation tests.
 
 **Best Practices**:
 - Never accept `user_id` in request data for authenticated operations
 - Always use `request.user` for user attribution
-- Sessions automatically track which user created them
+- **CRITICAL**: Always filter EditSession queries by `user=request.user` to prevent IDOR
+- Return 404 (not 403) when session doesn't belong to user (prevents session enumeration)
+- Sessions automatically track which user created them via `EditSession.user`
 - Log user ID and username for audit trails
+- Use `get_user_info_for_commit()` helper for consistent git attribution
 
 ---
 
