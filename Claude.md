@@ -175,7 +175,7 @@ Editor Service:
 - **Authentication enforcement** (Issue #60): All destructive endpoints now require `IsAuthenticated` permission class
   - StartEditAPIView, CommitDraftAPIView, PublishEditAPIView, UploadImageAPIView, UploadFileAPIView, QuickUploadFileAPIView, DeleteFileAPIView, ResolveConflictAPIView, DiscardDraftAPIView
   - See SECURITY.md "Authentication and Authorization" section for patterns and best practices
-  - User attribution standardized via helper functions: `get_user_info_from_request()` and `get_user_info_from_session()`
+  - User attribution standardized via single helper function: `get_user_info_for_commit(user)` - the SINGLE source of truth for git commit attribution
 - EDITOR-BRANCH-RECREATE01, EDITOR-BRANCH-RECREATE02, EDITOR-BRANCH-RECREATE03
 - EDITOR-START01, EDITOR-START02, EDITOR-START03, EDITOR-START-VAL01, EDITOR-START-RACE01, EDITOR-START-RACE02, EDITOR-START-STALE01
 - EDITOR-SAVE01, EDITOR-SAVE02, EDITOR-SAVE03, EDITOR-SAVE-VAL01, EDITOR-SAVE-NOTFOUND

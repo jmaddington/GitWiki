@@ -331,51 +331,47 @@ user = request.user
 
 ### User Attribution in Git Commits
 
-**Rule**: Use standardized helper functions for constructing `user_info` dictionaries to ensure consistent user attribution across all git operations.
+**Rule**: Use the standardized `get_user_info_for_commit()` function for ALL git operations to ensure consistent user attribution.
 
-**Helper Functions** (`editor/api.py`):
+**Helper Function** (`editor/api.py`):
 ```python
-def get_user_info_from_request(user):
-    """Get standardized user info from request.user for git commits."""
+def get_user_info_for_commit(user):
+    """
+    Get standardized user info for git commits.
+
+    This is the SINGLE source of truth for user attribution in git commits.
+    All git operations should use this function to ensure consistent authorship.
+    """
     return {
         'name': user.get_full_name() or user.username,
         'email': user.email or f'{user.username}@gitwiki.local'
     }
-
-def get_user_info_from_session(session):
-    """Get standardized user info from EditSession for git commits."""
-    return {
-        'name': session.user.username,
-        'email': session.user.email or f'{session.user.username}@gitwiki.local'
-    }
 ```
 
-**When to use each helper**:
-- `get_user_info_from_request(user)`: For direct request.user operations (QuickUpload, DeleteFile)
-- `get_user_info_from_session(session)`: For session-based operations (Commit, Publish, Upload)
+**Usage**: Pass any Django User instance to the function.
 
-**Email Fallback Pattern**: Always provide email fallback as `{username}@gitwiki.local` to ensure valid git commits even when users don't have email addresses configured.
+**Email Fallback Pattern**: Always provides `{username}@gitwiki.local` as fallback for users without configured email addresses.
 
 **Example - Correct**:
 ```python
-# Session-based operation
-repo.commit_changes(
-    branch_name=session.branch_name,
-    file_path=session.file_path,
-    content=content,
-    commit_message=commit_message,
-    user_info=get_user_info_from_session(session),  # Use helper
-    user=session.user
-)
-
-# Direct request.user operation
+# Direct from request.user
 repo.commit_changes(
     branch_name='main',
     file_path=file_path,
     content=content,
     commit_message=commit_message,
-    user_info=get_user_info_from_request(user),  # Use helper
-    user=user
+    user_info=get_user_info_for_commit(request.user),  # Simple and consistent
+    user=request.user
+)
+
+# From EditSession
+repo.commit_changes(
+    branch_name=session.branch_name,
+    file_path=session.file_path,
+    content=content,
+    commit_message=commit_message,
+    user_info=get_user_info_for_commit(session.user),  # Same function!
+    user=session.user
 )
 ```
 
@@ -506,7 +502,7 @@ Use this checklist when reviewing pull requests:
 - [ ] ALL destructive API endpoints use `IsAuthenticated` permission class
 - [ ] No `user_id` accepted in request data for authenticated operations
 - [ ] User identity comes from `request.user`, not request data
-- [ ] User attribution uses helper functions (`get_user_info_from_request` or `get_user_info_from_session`)
+- [ ] User attribution uses standardized helper function `get_user_info_for_commit(user)`
 - [ ] Permissions are checked before sensitive operations
 - [ ] Session-based operations verified to be tied to authenticated user
 - [ ] Audit logging includes user ID and username for destructive operations

@@ -46,35 +46,29 @@ logger = logging.getLogger(__name__)
 
 
 # AIDEV-NOTE: user-info-helpers; Standardized user attribution for git commits
-def get_user_info_from_request(user):
+def get_user_info_for_commit(user):
     """
-    Get standardized user info from request.user for git commits.
+    Get standardized user info for git commits.
+
+    This is the SINGLE source of truth for user attribution in git commits.
+    All git operations should use this function to ensure consistent authorship.
 
     Args:
-        user: Django User instance from request.user
+        user: Django User instance
 
     Returns:
         dict: User info with 'name' and 'email' keys
+
+    Example:
+        # Direct from request
+        user_info = get_user_info_for_commit(request.user)
+
+        # From session
+        user_info = get_user_info_for_commit(session.user)
     """
     return {
         'name': user.get_full_name() or user.username,
         'email': user.email or f'{user.username}@gitwiki.local'
-    }
-
-
-def get_user_info_from_session(session):
-    """
-    Get standardized user info from EditSession for git commits.
-
-    Args:
-        session: EditSession instance
-
-    Returns:
-        dict: User info with 'name' and 'email' keys
-    """
-    return {
-        'name': session.user.username,
-        'email': session.user.email or f'{session.user.username}@gitwiki.local'
     }
 
 
@@ -421,7 +415,7 @@ class CommitDraftAPIView(APIView):
                 file_path=session.file_path,
                 content=content,
                 commit_message=commit_message,
-                user_info=get_user_info_from_session(session),
+                user_info=get_user_info_for_commit(session.user),
                 user=session.user
             )
 
@@ -508,7 +502,7 @@ class PublishEditAPIView(APIView):
                         file_path=session.file_path,
                         content=content,
                         commit_message=commit_message,
-                        user_info=get_user_info_from_session(session),
+                        user_info=get_user_info_for_commit(session.user),
                         user=session.user
                     )
                     logger.info(f'Content committed successfully before publish [EDITOR-PUBLISH-COMMIT02]')
@@ -661,7 +655,7 @@ class UploadImageAPIView(APIView):
                 file_path=image_path,
                 content='',  # Image is already written to disk
                 commit_message=commit_message,
-                user_info=get_user_info_from_session(session),
+                user_info=get_user_info_for_commit(session.user),
                 user=session.user,
                 is_binary=True  # Flag to skip content write
             )
@@ -767,7 +761,7 @@ class UploadFileAPIView(APIView):
                 file_path=file_path,
                 content='',  # File is already written to disk
                 commit_message=commit_message,
-                user_info=get_user_info_from_session(session),
+                user_info=get_user_info_for_commit(session.user),
                 user=session.user,
                 is_binary=True  # Flag to skip content write
             )
@@ -881,7 +875,7 @@ class QuickUploadFileAPIView(APIView):
                 file_path=file_path,
                 content='',  # File is already written to disk
                 commit_message=commit_message,
-                user_info=get_user_info_from_request(user),
+                user_info=get_user_info_for_commit(user),
                 user=user,
                 is_binary=True  # Flag to skip content write
             )
@@ -1070,7 +1064,7 @@ class ResolveConflictAPIView(APIView):
                 branch_name=session.branch_name,
                 file_path=file_path,
                 resolution_content=resolution_content,
-                user_info=get_user_info_from_session(session),
+                user_info=get_user_info_for_commit(session.user),
                 is_binary=is_binary
             )
 
@@ -1161,7 +1155,7 @@ class DeleteFileAPIView(APIView):
             result = repo.delete_file(
                 file_path=file_path,
                 commit_message=commit_message,
-                user_info=get_user_info_from_request(user),
+                user_info=get_user_info_for_commit(user),
                 user=user,
                 branch_name='main'
             )
