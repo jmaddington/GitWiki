@@ -19,6 +19,8 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path, include
 from django.views.generic import RedirectView
+from django.conf import settings
+from django.conf.urls.static import static
 from config.health import health_check, readiness_check, liveness_check
 
 urlpatterns = [
@@ -45,3 +47,7 @@ urlpatterns = [
 handler404 = 'display.views.custom_404'
 handler500 = 'display.views.custom_500'
 handler403 = 'display.views.custom_403'
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
