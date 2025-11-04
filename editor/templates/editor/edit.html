@@ -266,6 +266,36 @@
                 ['code', 'codeblock']
             ],
 
+            // Custom HTML renderer to convert relative image paths to absolute URLs
+            customHTMLRenderer: {
+                image(node) {
+                    const { destination, altText } = node;
+                    let src = destination;
+
+                    // Convert relative paths to absolute URLs
+                    if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('//') && !src.startsWith('/')) {
+                        // Get the directory of the current file being edited
+                        const filePath = '{{ file_path }}';
+                        const lastSlash = filePath.lastIndexOf('/');
+                        const fileDir = lastSlash > 0 ? filePath.substring(0, lastSlash) : '';
+
+                        // Resolve relative path
+                        let resolvedPath = src;
+                        if (fileDir) {
+                            resolvedPath = fileDir + '/' + src;
+                        }
+
+                        src = '/wiki/file/' + resolvedPath;
+                    }
+
+                    return {
+                        type: 'openTag',
+                        tagName: 'img',
+                        attributes: { src, alt: altText || '' }
+                    };
+                }
+            },
+
             events: {
                 change: () => {
                     editorState.modified = true;
@@ -298,8 +328,9 @@
                         const data = response.data.data;
 
                         // Toast UI expects URL and alt text, handles markdown insertion automatically
-                        // API returns 'path' not 'image_url'
-                        callback('/' + data.path, data.alt_text || blob.name || '');
+                        // Convert relative path to absolute URL for proper display in preview
+                        const absoluteUrl = '/wiki/file/' + data.path;
+                        callback(absoluteUrl, data.alt_text || blob.name || '');
 
                         updateStatus('saved', 'Image uploaded');
                         editorState.modified = true;
@@ -559,8 +590,12 @@
 
             const data = response.data.data;  // API returns {success: true, data: {...}}
 
+            // Convert relative path to absolute URL for proper display in preview
+            const absoluteUrl = '/wiki/file/' + data.path;
+            const absoluteMarkdown = `![${altText || file.name.split('.')[0]}](${absoluteUrl})`;
+
             // Insert markdown at cursor
-            editorState.editor.insertText(data.markdown + '\n');
+            editorState.editor.insertText(absoluteMarkdown + '\n');
 
             updateStatus('saved', 'Image uploaded');
             editorState.modified = true;
