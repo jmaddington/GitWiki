@@ -1131,7 +1131,6 @@ class EditorAuthenticationTest(TestCase):
                 'target_path': 'files'
             }
         )
-
         # API returns 403 or redirects to login (302)
         self.assertIn(response.status_code, [302, 403])
 
