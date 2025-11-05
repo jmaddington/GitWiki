@@ -994,6 +994,9 @@ class QuickUploadFileAPITest(TestCase):
         """Test target path validation."""
         from io import BytesIO
 
+        # Authenticate since QuickUploadFileAPIView requires authentication
+        self.client.force_login(self.user)
+
         test_file = BytesIO(b'Test content')
         test_file.name = 'test.txt'
 
@@ -1399,6 +1402,38 @@ class EditorAuthenticationTest(TestCase):
         # Should not be blocked by authentication (might fail for other reasons)
         self.assertNotIn(response.status_code, [302, 403])
 
+    def test_unauthenticated_conflict_versions(self):
+        """Test that unauthenticated users cannot access conflict versions."""
+        # Create a session first
+        self.client.force_login(self.user)
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+        self.client.logout()
+
+        # Try to get conflict versions without authentication
+        response = self.client.get(f'/editor/api/conflicts/versions/{session_id}/test.md/')
+
+        # Should be blocked by authentication (401/403) or redirect (302)
+        self.assertIn(response.status_code, [302, 401, 403])
+
+    def test_authenticated_conflict_versions(self):
+        """Test that authenticated users can access conflict versions."""
+        self.client.force_login(self.user)
+
+        # Start session
+        response = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response.json()['data']['session_id']
+
+        # Try to get conflict versions (may fail for other reasons, but should not be blocked by auth)
+        response = self.client.get(f'/editor/api/conflicts/versions/{session_id}/test.md/')
+
+        # Should not be blocked by authentication
+        self.assertNotIn(response.status_code, [302, 401, 403])
+
     def test_unauthenticated_discard_draft(self):
         """Test that unauthenticated users cannot discard drafts."""
         # Create a session first
@@ -1665,6 +1700,22 @@ class SessionOwnershipSecurityTest(TestCase):
         }, content_type='application/json')
 
         # Should return 404
+        self.assertEqual(response_b.status_code, 404)
+
+    def test_cannot_access_conflict_versions_for_other_user_session(self):
+        """Verify User B cannot access conflict versions for User A's session (IDOR prevention)."""
+        # User A creates a session
+        self.client.force_login(self.user_a)
+        response_a = self.client.post('/editor/api/start/', {
+            'file_path': 'test.md'
+        }, content_type='application/json')
+        session_id = response_a.json()['data']['session_id']
+
+        # User B tries to access conflict versions for User A's session
+        self.client.force_login(self.user_b)
+        response_b = self.client.get(f'/editor/api/conflicts/versions/{session_id}/test.md/')
+
+        # Should return 404 (session not found for user B)
         self.assertEqual(response_b.status_code, 404)
 
     def test_cannot_discard_other_user_session(self):

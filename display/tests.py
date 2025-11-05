@@ -361,7 +361,8 @@ class DisplayViewsTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'image/png')
-        self.assertIn('inline', response['Content-Disposition'])
+        # All files now forced to download to prevent XSS attacks
+        self.assertIn('attachment', response['Content-Disposition'])
 
     def test_serve_file_with_download(self):
         """Test serving a file with download flag."""

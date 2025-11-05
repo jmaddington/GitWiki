@@ -2431,3 +2431,29 @@ def get_repository() -> GitRepository:
                 _repo_instance = GitRepository()
 
     return _repo_instance
+
+
+def reset_repository_singleton_for_testing():
+    """
+    Reset the global repository singleton to None.
+
+    WARNING: This function is ONLY for use in test teardown methods.
+    DO NOT use this in production code as it will cause the repository
+    to be reinitialized on the next get_repository() call.
+
+    Thread-safe implementation using the same lock as get_repository().
+
+    Usage in tests:
+        def tearDown(self):
+            # Clean up test resources
+            ...
+            # Reset singleton to prevent state pollution
+            reset_repository_singleton_for_testing()
+
+    See also:
+        - editor/tests.py: EditorAPITest.tearDown()
+        - git_service/tests_auth.py: GitServiceAuthenticationTest.tearDown()
+    """
+    global _repo_instance
+    with _repo_lock:
+        _repo_instance = None

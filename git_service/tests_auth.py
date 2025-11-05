@@ -53,7 +53,7 @@ class GitServiceAuthenticationTest(TestCase):
         settings.WIKI_REPO_PATH = self.old_repo_path
 
         # Clear repository singleton to prevent state pollution between tests
-        git_operations._repo_instance = None
+        git_operations.reset_repository_singleton_for_testing()
 
     def test_unauthenticated_create_branch(self):
         """Test that unauthenticated users cannot create branches."""

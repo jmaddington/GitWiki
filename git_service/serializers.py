@@ -6,8 +6,17 @@ from rest_framework import serializers
 
 
 class CreateBranchSerializer(serializers.Serializer):
-    """Serializer for create branch request."""
-    # No fields needed - uses authenticated user from request
+    """
+    Serializer for create branch request.
+
+    No input fields required - draft branch is created automatically
+    for the authenticated user (request.user). All user attribution
+    comes from authentication context.
+
+    The branch name is generated automatically using the user ID and
+    a random suffix for uniqueness.
+    """
+    pass  # No fields needed - uses authenticated user from request
 
 
 class CommitChangesSerializer(serializers.Serializer):

@@ -950,7 +950,7 @@ class ConflictVersionsAPIView(APIView):
 
     GET /editor/api/conflicts/versions/<session_id>/<file_path>/
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id, file_path):
         """Get conflict versions for resolution."""
@@ -1174,6 +1174,16 @@ class DeleteFileAPIView(APIView):
             )
 
         except GitRepositoryError as e:
+            # Check if file doesn't exist - return 404 instead of 500
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                logger.warning(f'Attempted to delete non-existent file: {file_path} [EDITOR-DELETE-NOTFOUND]', exc_info=True)
+                return error_response(
+                    message=f"File not found: {file_path}",
+                    error_code="EDITOR-DELETE-NOTFOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    details={'file_path': file_path}
+                )
+            # Other git errors - return 500
             logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]', exc_info=True)
             return error_response(
                 message="Failed to delete file. Please try again.",

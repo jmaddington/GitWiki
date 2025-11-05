@@ -133,25 +133,13 @@ filename = request.FILES['file'].name
 # If filename is "../../malware.exe.txt", this creates a security hole
 ```
 
-### Dangerous Extensions Blacklist
+### File Type Policy: All Types Accepted
 
-**Location**: `git_service/filename_utils.py` (constant `DANGEROUS_EXTENSIONS`)
+**Policy**: GitWiki accepts **ALL file types** without extension-based restrictions.
 
-**Usage**:
-```python
-from git_service.filename_utils import DANGEROUS_EXTENSIONS, get_safe_extension
+**Rationale**: Blocking executable file types (scripts, installers, binaries) would make GitWiki unusable for its target audience of technical MSP professionals. This is analogous to GitHub accepting `.sh`, `.ps1`, `.exe` files - restricting these would fundamentally break the product's purpose.
 
-ext = get_safe_extension(filename)
-if ext in DANGEROUS_EXTENSIONS:
-    raise ValueError(f"Dangerous file type: {ext}")
-```
-
-**Blocked extensions** (30+ types):
-- **Windows**: `exe`, `bat`, `cmd`, `com`, `pif`, `scr`, `vbs`, `msi`, `msp`, `gadget`, `scf`, `lnk`, `inf`, `reg`
-- **Unix/Linux**: `sh`, `bash`, `csh`, `ksh`, `zsh`, `run`, `out`, `elf`, `bin`
-- **macOS**: `app`, `dmg`, `pkg`
-- **Package formats**: `deb`, `rpm`
-- **Cross-platform**: `js`, `jar`
+**No extension blacklisting**: Files like `.exe`, `.sh`, `.bat`, `.ps1`, `.jar`, `.dmg`, etc. are all accepted.
 
 ### Why Remove Dots from Base Names?
 
@@ -212,61 +200,61 @@ if not str(safe_path.resolve()).startswith(str(base_dir.resolve())):
 
 ## File Upload Security
 
-### Complete Upload Workflow
+### Security Model
 
+GitWiki's file upload security relies on **defense in depth** rather than extension blacklisting:
+
+1. **Authentication Required**: All upload endpoints use `IsAuthenticated` permission class
+2. **Forced Download**: All user-uploaded files served with `Content-Disposition: attachment` to prevent browser execution of malicious content (HTML/SVG/JS)
+3. **Security Headers**: `X-Content-Type-Options: nosniff` prevents MIME type sniffing in production (see `config/settings_production.py`)
+4. **No Server-Side Execution**: Files are served to users, never executed by the server
+5. **Repository Access Controls**: Files stored in Git repository with proper permissions
+6. **Path Traversal Prevention**: All file paths validated to prevent directory traversal
+7. **File Size Limits**: 100MB maximum per file
+8. **IDOR Prevention**: Session-based uploads validate user ownership
+
+**File Serving Implementation** (`display/views.py:976`):
+- All files served with `Content-Disposition: attachment` to force download
+- Prevents XSS attacks via malicious HTML/SVG files
+- Browser cannot execute JavaScript from user-uploaded files
+
+### File Upload Validation (Current Implementation)
+
+**What IS validated**:
+- ✅ File size (100MB limit)
+- ✅ Path traversal prevention (no `..` or absolute paths)
+- ✅ User authentication (IsAuthenticated required)
+- ✅ User authorization (session ownership for session-based uploads)
+
+**What is NOT validated**:
+- ❌ File extensions (all types accepted)
+- ❌ File content/MIME types
+- ❌ Filename characters (basic sanitization only)
+
+**Example** (from `editor/serializers.py`):
 ```python
-from git_service.filename_utils import (
-    sanitize_filename,
-    get_safe_extension,
-    DANGEROUS_EXTENSIONS
-)
-from datetime import datetime
-import uuid
+class UploadFileSerializer(serializers.Serializer):
+    file = serializers.FileField(required=True)
 
-def handle_file_upload(uploaded_file):
-    # 1. Validate file size (in serializer)
-    # Already handled by UploadFileSerializer with 100MB limit
+    def validate_file(self, value):
+        """Validate file size (all file types allowed)."""
+        max_size_mb = 100
+        max_size_bytes = max_size_mb * 1024 * 1024
 
-    # 2. Sanitize filename
-    base_name = sanitize_filename(uploaded_file.name, fallback='file')
+        if value.size > max_size_bytes:
+            raise serializers.ValidationError(
+                f"File too large. Maximum size: {max_size_mb}MB"
+            )
 
-    # 3. Extract and validate extension
-    ext = get_safe_extension(uploaded_file.name)
-    if ext and ext in DANGEROUS_EXTENSIONS:
-        raise ValueError(f"File type '{ext}' not allowed")
-
-    # 4. Generate unique filename
-    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    unique_id = str(uuid.uuid4())[:8]
-    filename = f"{base_name}-{timestamp}-{unique_id}.{ext}" if ext else f"{base_name}-{timestamp}-{unique_id}"
-
-    # 5. Validate target path (no traversal)
-    target_path = validate_safe_path(target_directory)
-
-    # 6. Construct final path
-    file_path = target_path / filename
-
-    # 7. Save file
-    with open(file_path, 'wb') as f:
-        for chunk in uploaded_file.chunks():
-            f.write(chunk)
-
-    return file_path
+        return value
 ```
 
-### File Size Limits
+### File Size Configuration
 
-**Configuration** (`config/settings.py`):
+**Django settings** (`config/settings.py`):
 ```python
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
-```
-
-**Validation** (in serializer):
-```python
-max_size = 100 * 1024 * 1024  # 100MB
-if value.size > max_size:
-    raise serializers.ValidationError(f"File too large. Maximum: 100MB")
 ```
 
 ---
