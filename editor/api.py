@@ -17,6 +17,7 @@ import logging
 import markdown
 import os
 import uuid
+import tempfile
 from datetime import datetime
 
 from .models import EditSession
@@ -82,7 +83,7 @@ def _ensure_branch_exists(session: 'EditSession', repo) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f'Failed to recreate branch {session.branch_name}: {e} [EDITOR-BRANCH-RECREATE03]')
+        logger.error(f'Failed to recreate branch {session.branch_name}: {e} [EDITOR-BRANCH-RECREATE03]', exc_info=True)
         return False
 
 
@@ -208,7 +209,7 @@ class StartEditAPIView(APIView):
                         message=f"Resumed existing session created by concurrent request for '{file_path}'"
                     )
                 # If still no session found, re-raise the error
-                logger.error(f'Failed to find session after IntegrityError [EDITOR-START-RACE02]')
+                logger.error(f'Failed to find session after IntegrityError [EDITOR-START-RACE02]', exc_info=True)
                 raise
 
             # Get file content from main branch, or create new
@@ -269,8 +270,8 @@ class SaveDraftAPIView(APIView):
         content = data['content']
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Validate markdown
             validation = self._validate_markdown(content)
@@ -291,7 +292,7 @@ class SaveDraftAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-SAVE02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-SAVE02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-SAVE-NOTFOUND",
@@ -358,8 +359,8 @@ class CommitDraftAPIView(APIView):
         commit_message = data['commit_message']
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Validate markdown (hard error on invalid)
             save_view = SaveDraftAPIView()
@@ -407,7 +408,7 @@ class CommitDraftAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-COMMIT02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-COMMIT02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-COMMIT-NOTFOUND",
@@ -451,8 +452,8 @@ class PublishEditAPIView(APIView):
         auto_push = data['auto_push']
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             repo = get_repository()
 
@@ -481,7 +482,7 @@ class PublishEditAPIView(APIView):
                     )
                     logger.info(f'Content committed successfully before publish [EDITOR-PUBLISH-COMMIT02]')
                 except Exception as commit_error:
-                    logger.error(f'Failed to commit content before publish: {commit_error} [EDITOR-PUBLISH-COMMIT03]')
+                    logger.error(f'Failed to commit content before publish: {commit_error} [EDITOR-PUBLISH-COMMIT03]', exc_info=True)
                     raise
 
             # Publish to main via Git Service
@@ -521,7 +522,7 @@ class PublishEditAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-PUBLISH03]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-PUBLISH03]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-PUBLISH-NOTFOUND",
@@ -594,8 +595,8 @@ class UploadImageAPIView(APIView):
         alt_text = data.get('alt_text', '')
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -651,7 +652,7 @@ class UploadImageAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-UPLOAD-NOTFOUND",
@@ -694,8 +695,8 @@ class UploadFileAPIView(APIView):
         description = data.get('description', '')
 
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Generate unique filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -758,7 +759,7 @@ class UploadFileAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD-FILE02]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-UPLOAD-FILE02]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-UPLOAD-FILE-NOTFOUND",
@@ -860,7 +861,7 @@ class QuickUploadFileAPIView(APIView):
                 repo.write_files_to_disk('main', [file_path], user)
                 logger.info(f'Partial rebuild completed after file upload [EDITOR-QUICK-UPLOAD-REBUILD02]')
             except Exception as rebuild_error:
-                logger.error(f'Partial rebuild failed after file upload: {rebuild_error} [EDITOR-QUICK-UPLOAD-REBUILD03]')
+                logger.error(f'Partial rebuild failed after file upload: {rebuild_error} [EDITOR-QUICK-UPLOAD-REBUILD03]', exc_info=True)
                 # Don't fail the upload if rebuild fails
 
             # Generate markdown link syntax for the file
@@ -950,13 +951,13 @@ class ConflictVersionsAPIView(APIView):
 
     GET /editor/api/conflicts/versions/<session_id>/<file_path>/
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id, file_path):
         """Get conflict versions for resolution."""
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             repo = get_repository()
             versions = repo.get_conflict_versions(session.branch_name, file_path)
@@ -969,7 +970,7 @@ class ConflictVersionsAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT04]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT04]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-CONFLICT-NOTFOUND",
@@ -1012,9 +1013,29 @@ class ResolveConflictAPIView(APIView):
         resolution_content = data['resolution_content']
         conflict_type = data.get('conflict_type', 'text')
 
+        # AIDEV-NOTE: security; Additional backend path validation to prevent path injection
+        # Ensure file_path is within repository bounds
+        from pathlib import Path as PathlibPath
         try:
-            # Get edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Normalize path and check for traversal
+            safe_path = PathlibPath(file_path)
+            if safe_path.is_absolute() or '..' in safe_path.parts:
+                logger.warning(f'Path traversal attempt in conflict resolution: {file_path} [EDITOR-RESOLVE-PATH01]')
+                return validation_error_response(
+                    {'file_path': 'Invalid file path: must be relative and within repository'},
+                    "EDITOR-RESOLVE-VAL02"
+                )
+        except Exception as path_error:
+            logger.warning(f'Invalid file path in conflict resolution: {file_path} - {path_error} [EDITOR-RESOLVE-PATH02]')
+            return validation_error_response(
+                {'file_path': 'Invalid file path format'},
+                "EDITOR-RESOLVE-VAL03"
+            )
+
+        temp_file_path = None
+        try:
+            # Get edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
 
             # Determine if binary
             is_binary = conflict_type in ['image_mine', 'image_theirs', 'binary_mine', 'binary_theirs']
@@ -1027,11 +1048,19 @@ class ResolveConflictAPIView(APIView):
                 repo = get_repository()
                 theirs_content = repo.get_file_content_binary(file_path, branch='main')
 
-                # Write to temp location for binary handling
-                temp_path = Path(f'/tmp/{uuid.uuid4()}.tmp')
-                temp_path.write_bytes(theirs_content)
-                resolution_content = str(temp_path)
-                logger.info(f'User {session.user.id} ({session.user.username}) prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
+                # AIDEV-NOTE: security; Use secure temp file handling with cleanup
+                # Write to secure temp location for binary handling
+                try:
+                    # Create secure temporary file (mode 0600, unique name)
+                    temp_file = tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.tmp', prefix='gitwiki_conflict_')
+                    temp_file_path = temp_file.name
+                    temp_file.write(theirs_content)
+                    temp_file.close()
+                    resolution_content = temp_file_path
+                    logger.info(f'User {session.user.id} ({session.user.username}) prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
+                except Exception as temp_error:
+                    logger.error(f'Failed to create temp file for binary conflict resolution: {temp_error} [EDITOR-CONFLICT-TEMP01]', exc_info=True)
+                    raise
 
             repo = get_repository()
             result = repo.resolve_conflict(
@@ -1074,7 +1103,7 @@ class ResolveConflictAPIView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
         except EditSession.DoesNotExist:
-            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT08]')
+            logger.error(f'Edit session not found: {session_id} [EDITOR-CONFLICT08]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or inactive",
                 error_code="EDITOR-CONFLICT-NOTFOUND",
@@ -1089,6 +1118,14 @@ class ResolveConflictAPIView(APIView):
             if should_rollback:
                 transaction.set_rollback(True)
             return response
+        finally:
+            # Clean up temporary file if it was created
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                    logger.debug(f'Cleaned up temp file: {temp_file_path} [EDITOR-CONFLICT-CLEANUP01]')
+                except Exception as cleanup_error:
+                    logger.warning(f'Failed to clean up temp file {temp_file_path}: {cleanup_error} [EDITOR-CONFLICT-CLEANUP02]')
 
 
 class DeleteFileAPIView(APIView):
@@ -1162,7 +1199,7 @@ class DeleteFileAPIView(APIView):
                 else:
                     logger.warning(f'Parent directory not found for rebuild: {parent_path} [EDITOR-DELETE-REBUILD04]')
             except Exception as rebuild_error:
-                logger.error(f'Partial rebuild failed after file deletion: {rebuild_error} [EDITOR-DELETE-REBUILD05]')
+                logger.error(f'Partial rebuild failed after file deletion: {rebuild_error} [EDITOR-DELETE-REBUILD05]', exc_info=True)
                 # Don't fail the delete if rebuild fails
 
             return success_response(
@@ -1174,13 +1211,50 @@ class DeleteFileAPIView(APIView):
             )
 
         except GitRepositoryError as e:
-            logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]')
-            return error_response(
-                message="Failed to delete file. Please try again.",
-                error_code="EDITOR-DELETE03",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                details={'file_path': file_path}
-            )
+            error_str = str(e).lower()
+
+            # Check for specific error conditions and provide helpful messages
+            if "does not exist" in error_str or "not found" in error_str:
+                logger.warning(f'Attempted to delete non-existent file: {file_path} [EDITOR-DELETE-NOTFOUND]', exc_info=True)
+                return error_response(
+                    message=f"File not found: {file_path}",
+                    error_code="EDITOR-DELETE-NOTFOUND",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    details={'file_path': file_path}
+                )
+            elif "permission" in error_str or "denied" in error_str:
+                logger.error(f'Permission denied during file deletion: {file_path} [EDITOR-DELETE-PERMISSION]', exc_info=True)
+                return error_response(
+                    message="Permission denied. Unable to delete file from repository.",
+                    error_code="EDITOR-DELETE-PERMISSION",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
+            elif "lock" in error_str or "conflict" in error_str:
+                logger.error(f'Repository lock/conflict during file deletion: {file_path} [EDITOR-DELETE-LOCK]', exc_info=True)
+                return error_response(
+                    message="Repository is currently locked or has conflicts. Please try again in a moment.",
+                    error_code="EDITOR-DELETE-LOCK",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
+            elif "branch" in error_str:
+                logger.error(f'Branch issue during file deletion: {file_path} [EDITOR-DELETE-BRANCH]', exc_info=True)
+                return error_response(
+                    message="Repository branch error. Unable to delete file.",
+                    error_code="EDITOR-DELETE-BRANCH",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
+            else:
+                # Generic git error
+                logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]', exc_info=True)
+                return error_response(
+                    message="Failed to delete file due to repository error. Please try again.",
+                    error_code="EDITOR-DELETE03",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
         except Exception as e:
             response, should_rollback = handle_exception(
                 e, "delete file", "EDITOR-DELETE04",
@@ -1214,8 +1288,8 @@ class DiscardDraftAPIView(APIView):
         session_id = data['session_id']
 
         try:
-            # Get the edit session
-            session = EditSession.objects.get(id=session_id, is_active=True)
+            # Get the edit session (with user ownership check to prevent IDOR)
+            session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
             file_path = session.file_path
             branch_name = session.branch_name
 
@@ -1245,7 +1319,7 @@ class DiscardDraftAPIView(APIView):
             )
 
         except EditSession.DoesNotExist:
-            logger.error(f'Session not found: {session_id} [EDITOR-DISCARD-NOTFOUND]')
+            logger.error(f'Session not found: {session_id} [EDITOR-DISCARD-NOTFOUND]', exc_info=True)
             return error_response(
                 message=f"Edit session {session_id} not found or already discarded",
                 error_code="EDITOR-DISCARD-NOTFOUND",

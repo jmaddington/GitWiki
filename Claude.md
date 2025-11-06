@@ -51,8 +51,6 @@ Configuration:
 
 Security Utilities:
 - `xss-prevention` (static/js/utils.js:5) - Client-side HTML escaping for XSS prevention (see SECURITY.md)
-- `filename-utils` (git_service/filename_utils.py:12) - Centralized filename sanitization and validation
-- `dangerous-extensions` (git_service/filename_utils.py:22) - Blacklist of 30+ executable file types
 
 Git Service:
 - `atomic-ops` (git_operations.py:12) - All operations must be atomic and rollback-safe

@@ -1,6 +1,6 @@
 {% extends "editor/base.html" %}
 
-{% block title %}Edit: {{ file_path }} - GitWiki{% endblock %}
+{% block title %}Edit: {{ file_path|escape }} - GitWiki{% endblock %}
 
 {% block content %}
 {% csrf_token %}
@@ -41,7 +41,7 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">
-                        <i class="fas fa-edit"></i> Editing: <code>{{ file_path }}</code>
+                        <i class="fas fa-edit"></i> Editing: <code>{{ file_path|escape }}</code>
                     </h5>
                     <div>
                         <span id="status-indicator" class="badge bg-secondary">
@@ -176,7 +176,8 @@
 
     // Configuration
     const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
-    const LOCALSTORAGE_KEY = 'gitwiki_draft_{{ file_path }}';
+    // AIDEV-NOTE: xss-prevention; Use |escapejs for Django variables in JavaScript
+    const LOCALSTORAGE_KEY = 'gitwiki_draft_{{ file_path|escapejs }}';
     const API_BASE = '/editor/api';
 
     // CSRF Token Support
@@ -235,7 +236,7 @@
     let editorState = {
         sessionId: null,
         branchName: null,
-        filePath: '{{ file_path }}',
+        filePath: '{{ file_path|escapejs }}',
         lastSaved: null,
         modified: false,
         autoSaveTimer: null,
@@ -293,7 +294,7 @@
                     // Convert relative paths to absolute URLs
                     if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('//') && !src.startsWith('/')) {
                         // Get the directory of the current file being edited
-                        const filePath = '{{ file_path }}';
+                        const filePath = '{{ file_path|escapejs }}';
                         const lastSlash = filePath.lastIndexOf('/');
                         const fileDir = lastSlash > 0 ? filePath.substring(0, lastSlash) : '';
 

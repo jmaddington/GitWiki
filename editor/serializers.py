@@ -109,8 +109,9 @@ class UploadFileSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
 
     def validate_file(self, value):
-        """Validate file size (any file type allowed)."""
+        """Validate file size (all file types allowed for MSP operations)."""
         # AIDEV-NOTE: arbitrary-file-upload; Allow any file type up to 100MB
+        # Security relies on: authentication, file serving headers, and repository access controls
         max_size_mb = 100
         max_size_bytes = max_size_mb * 1024 * 1024
 
@@ -130,8 +131,9 @@ class QuickUploadFileSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
 
     def validate_file(self, value):
-        """Validate file size (any file type allowed)."""
+        """Validate file size (all file types allowed for MSP operations)."""
         # AIDEV-NOTE: quick-file-upload; Allow any file type up to 100MB
+        # Security relies on: authentication, file serving headers, and repository access controls
         max_size_mb = 100
         max_size_bytes = max_size_mb * 1024 * 1024
 

@@ -286,10 +286,11 @@ document.getElementById('resolveForm').addEventListener('submit', async function
     resolveBtn.disabled = true;
     resolveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Resolving...';
 
+    // AIDEV-NOTE: xss-prevention; Use |escapejs for Django variables in JavaScript
     try {
         const response = await axios.post('{% url "editor:api-resolve-conflict" %}', {
             session_id: {{ session.id }},
-            file_path: '{{ file_path }}',
+            file_path: '{{ file_path|escapejs }}',
             resolution_content: resolvedContent,
             conflict_type: 'text'
         });

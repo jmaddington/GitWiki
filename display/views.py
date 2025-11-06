@@ -970,13 +970,10 @@ def serve_file(request, file_path):
             )
 
             # Set Content-Disposition header
+            # AIDEV-NOTE: xss-prevention; Always force download for user-uploaded files to prevent XSS attacks
+            # HTML/SVG files could execute JavaScript if served inline from same domain
             file_name = file_full_path.name
-            if force_download or not content_type.startswith(('image/', 'video/', 'audio/', 'text/')):
-                # Force download for non-viewable files or when explicitly requested
-                response['Content-Disposition'] = f'attachment; filename="{file_name}"'
-            else:
-                # Inline display for viewable files
-                response['Content-Disposition'] = f'inline; filename="{file_name}"'
+            response['Content-Disposition'] = f'attachment; filename="{file_name}"'
 
             logger.info(f'Serving file: {clean_path} (type: {content_type}, download: {force_download}) [DISPLAY-FILE05]')
             return response
