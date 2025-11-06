@@ -17,6 +17,7 @@ import logging
 import markdown
 import os
 import uuid
+import tempfile
 from datetime import datetime
 
 from .models import EditSession
@@ -1012,6 +1013,26 @@ class ResolveConflictAPIView(APIView):
         resolution_content = data['resolution_content']
         conflict_type = data.get('conflict_type', 'text')
 
+        # AIDEV-NOTE: security; Additional backend path validation to prevent path injection
+        # Ensure file_path is within repository bounds
+        from pathlib import Path as PathlibPath
+        try:
+            # Normalize path and check for traversal
+            safe_path = PathlibPath(file_path)
+            if safe_path.is_absolute() or '..' in safe_path.parts:
+                logger.warning(f'Path traversal attempt in conflict resolution: {file_path} [EDITOR-RESOLVE-PATH01]')
+                return validation_error_response(
+                    {'file_path': 'Invalid file path: must be relative and within repository'},
+                    "EDITOR-RESOLVE-VAL02"
+                )
+        except Exception as path_error:
+            logger.warning(f'Invalid file path in conflict resolution: {file_path} - {path_error} [EDITOR-RESOLVE-PATH02]')
+            return validation_error_response(
+                {'file_path': 'Invalid file path format'},
+                "EDITOR-RESOLVE-VAL03"
+            )
+
+        temp_file_path = None
         try:
             # Get edit session (with user ownership check to prevent IDOR)
             session = EditSession.objects.get(id=session_id, is_active=True, user=request.user)
@@ -1027,11 +1048,19 @@ class ResolveConflictAPIView(APIView):
                 repo = get_repository()
                 theirs_content = repo.get_file_content_binary(file_path, branch='main')
 
-                # Write to temp location for binary handling
-                temp_path = Path(f'/tmp/{uuid.uuid4()}.tmp')
-                temp_path.write_bytes(theirs_content)
-                resolution_content = str(temp_path)
-                logger.info(f'User {session.user.id} ({session.user.username}) prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
+                # AIDEV-NOTE: security; Use secure temp file handling with cleanup
+                # Write to secure temp location for binary handling
+                try:
+                    # Create secure temporary file (mode 0600, unique name)
+                    temp_file = tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.tmp', prefix='gitwiki_conflict_')
+                    temp_file_path = temp_file.name
+                    temp_file.write(theirs_content)
+                    temp_file.close()
+                    resolution_content = temp_file_path
+                    logger.info(f'User {session.user.id} ({session.user.username}) prepared binary file for conflict resolution: {file_path} ({len(theirs_content)} bytes) [EDITOR-CONFLICT-BIN01]')
+                except Exception as temp_error:
+                    logger.error(f'Failed to create temp file for binary conflict resolution: {temp_error} [EDITOR-CONFLICT-TEMP01]', exc_info=True)
+                    raise
 
             repo = get_repository()
             result = repo.resolve_conflict(
@@ -1089,6 +1118,14 @@ class ResolveConflictAPIView(APIView):
             if should_rollback:
                 transaction.set_rollback(True)
             return response
+        finally:
+            # Clean up temporary file if it was created
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                    logger.debug(f'Cleaned up temp file: {temp_file_path} [EDITOR-CONFLICT-CLEANUP01]')
+                except Exception as cleanup_error:
+                    logger.warning(f'Failed to clean up temp file {temp_file_path}: {cleanup_error} [EDITOR-CONFLICT-CLEANUP02]')
 
 
 class DeleteFileAPIView(APIView):
@@ -1174,8 +1211,10 @@ class DeleteFileAPIView(APIView):
             )
 
         except GitRepositoryError as e:
-            # Check if file doesn't exist - return 404 instead of 500
-            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+            error_str = str(e).lower()
+
+            # Check for specific error conditions and provide helpful messages
+            if "does not exist" in error_str or "not found" in error_str:
                 logger.warning(f'Attempted to delete non-existent file: {file_path} [EDITOR-DELETE-NOTFOUND]', exc_info=True)
                 return error_response(
                     message=f"File not found: {file_path}",
@@ -1183,14 +1222,39 @@ class DeleteFileAPIView(APIView):
                     status_code=status.HTTP_404_NOT_FOUND,
                     details={'file_path': file_path}
                 )
-            # Other git errors - return 500
-            logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]', exc_info=True)
-            return error_response(
-                message="Failed to delete file. Please try again.",
-                error_code="EDITOR-DELETE03",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                details={'file_path': file_path}
-            )
+            elif "permission" in error_str or "denied" in error_str:
+                logger.error(f'Permission denied during file deletion: {file_path} [EDITOR-DELETE-PERMISSION]', exc_info=True)
+                return error_response(
+                    message="Permission denied. Unable to delete file from repository.",
+                    error_code="EDITOR-DELETE-PERMISSION",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
+            elif "lock" in error_str or "conflict" in error_str:
+                logger.error(f'Repository lock/conflict during file deletion: {file_path} [EDITOR-DELETE-LOCK]', exc_info=True)
+                return error_response(
+                    message="Repository is currently locked or has conflicts. Please try again in a moment.",
+                    error_code="EDITOR-DELETE-LOCK",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
+            elif "branch" in error_str:
+                logger.error(f'Branch issue during file deletion: {file_path} [EDITOR-DELETE-BRANCH]', exc_info=True)
+                return error_response(
+                    message="Repository branch error. Unable to delete file.",
+                    error_code="EDITOR-DELETE-BRANCH",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
+            else:
+                # Generic git error
+                logger.error(f'Git operation failed during deletion: {str(e)} [EDITOR-DELETE03]', exc_info=True)
+                return error_response(
+                    message="Failed to delete file due to repository error. Please try again.",
+                    error_code="EDITOR-DELETE03",
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={'file_path': file_path}
+                )
         except Exception as e:
             response, should_rollback = handle_exception(
                 e, "delete file", "EDITOR-DELETE04",
